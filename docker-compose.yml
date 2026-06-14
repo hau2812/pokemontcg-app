@@ -1,0 +1,51 @@
+﻿version: '3.8'
+
+services:
+  app:
+    build: .
+    container_name: tcg-app
+    restart: always
+    environment:
+      # Database Connection (Supabase)
+      DATABASE_URL: "jdbc:postgresql://aws-1-ap-northeast-1.pooler.supabase.com:5432/postgres"
+      DATABASE_USER: "postgres.hkajkqanhngtrrrewsis"
+      DATABASE_PASSWORD: "haduchau123@"
+      
+      # Admin Credentials
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-SECRET_ADMIN_TOKEN_123}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
+      
+      # Gmail Configuration
+      GMAIL_USER: pikaryutcg@gmail.com
+      GMAIL_APP_PASSWORD: "lhwf nvvv goba ahgn" # NOTE: Change this or use a .env file!
+    networks:
+      - tcg-network
+
+  # Caddy acts as a reverse proxy and automatically provisions SSL (https) for your domain
+  caddy:
+    image: caddy:2-alpine
+    container_name: tcg-caddy
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - DOMAIN=www.japanhntcg.com
+    command: caddy reverse-proxy --from https://www.japanhntcg.com --to http://app:8080
+    depends_on:
+      - app
+    networks:
+      - tcg-network
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:
+
+networks:
+  tcg-network:
+    driver: bridge
+

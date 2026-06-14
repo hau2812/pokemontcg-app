@@ -1,0 +1,1722 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PikaRyu TCG</title>
+    <link rel="stylesheet" href="./style.css?v=7" />
+    
+    <!-- React & ReactDOM -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+    
+    <!-- Babel -->
+    <script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
+
+    <!-- Axios -->
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="text/babel">
+const { useState, useEffect, useMemo } = React;
+
+const API_BASE_URL = '/api';
+
+const formatCurrency = (value) => {
+  return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(value);
+};
+
+// ==========================================
+// STOREFRONT COMPONENT
+// ==========================================
+const Storefront = ({ navigateTo }) => {
+  const [products, setProducts] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [banners, setBanners] = useState([]);
+  const [currentBannerIndex, setCurrentBannerIndex] = useState(0);
+  const [selectedCategory, setSelectedCategory] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showGradingModal, setShowGradingModal] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [theme, setTheme] = useState(localStorage.getItem('theme') || 'light');
+
+  React.useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('theme', theme);
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme(theme === 'light' ? 'dark' : 'light');
+  };
+  const [cart, setCart] = useState({});
+  const [showCartModal, setShowCartModal] = useState(false);
+  const [showCheckout, setShowCheckout] = useState(false);
+  const [sortOption, setSortOption] = useState('default');
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
+  const [phone, setPhone] = useState('');
+  const [phoneError, setPhoneError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [orderSuccess, setOrderSuccess] = useState(null);
+  
+  const [gradingPolicy, setGradingPolicy] = useState(null);
+  
+  // Product Detail Modal States
+  const [selectedProduct, setSelectedProduct] = useState(null);
+  const [showProductDetailModal, setShowProductDetailModal] = useState(false);
+  const [galleryActiveIndex, setGalleryActiveIndex] = useState(0);
+
+  const openProductDetail = (product) => {
+    setSelectedProduct(product);
+    setGalleryActiveIndex(0);
+    setShowProductDetailModal(true);
+  };
+
+  const closeProductDetail = () => {
+    setShowProductDetailModal(false);
+    setTimeout(() => setSelectedProduct(null), 300);
+  };
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const [prodRes, catRes, bannerRes] = await Promise.all([
+          axios.get(`${API_BASE_URL}/public/products`),
+          axios.get(`${API_BASE_URL}/public/categories`),
+          axios.get(`${API_BASE_URL}/public/banners`)
+        ]);
+        setProducts(prodRes.data);
+        setCategories(catRes.data);
+        setBanners(bannerRes.data);
+
+        axios.get(`${API_BASE_URL}/public/settings/gradingPolicy`)
+             .then(res => {
+               if (res.data && res.data.value) setGradingPolicy(JSON.parse(res.data.value));
+             })
+             .catch(err => console.error("No policy found", err));
+      } catch (error) {
+        console.error("Error fetching data:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, []);
+
+  useEffect(() => {
+    if (banners.length <= 1) return;
+    const interval = setInterval(() => {
+      setCurrentBannerIndex(prev => (prev + 1) % banners.length);
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [banners.length]);
+
+  const { totalPrice, totalItems } = useMemo(() => {
+    let total = 0, itemsCount = 0;
+    Object.entries(cart).forEach(([productId, quantity]) => {
+      if (quantity > 0) {
+        const product = products.find(p => p.id === parseInt(productId));
+        if (product) {
+          total += product.price * quantity;
+          itemsCount += quantity;
+        }
+      }
+    });
+    return { totalPrice: total, totalItems: itemsCount };
+  }, [cart, products]);
+
+  const handleQuantityChange = (productId, delta) => {
+    const product = products.find(p => p.id === productId);
+    if (!product) return;
+    setCart(prev => {
+      const newQty = (prev[productId] || 0) + delta;
+      if (newQty < 0 || newQty > product.stockQuantity) return prev;
+      return { ...prev, [productId]: newQty };
+    });
+  };
+
+  const handleCheckout = async () => {
+    if (!/^(0[3|5|7|8|9])+([0-9]{8})$/.test(phone)) {
+      setPhoneError('Số điện thoại không hợp lệ');
+      return;
+    }
+    setPhoneError(''); setIsSubmitting(true);
+    const items = Object.entries(cart).filter(([_, qty]) => qty > 0).map(([id, qty]) => ({ productId: parseInt(id), quantity: qty }));
+    try {
+      const response = await axios.post(`${API_BASE_URL}/public/orders`, { phone, items });
+      setOrderSuccess(response.data); setShowCheckout(false); setCart({});
+    } catch (error) {
+      alert((error.response && error.response.status === 409) ? "Sản phẩm đã hết hàng." : "Lỗi khi đặt hàng.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedCategory, searchQuery]);
+
+  const filteredProducts = products.filter(p => {
+    const matchCategory = selectedCategory ? (p.category && p.category.id === selectedCategory) : true;
+    const matchSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchCategory && matchSearch;
+  });
+
+  const applySort = (list) => {
+    if (sortOption === 'price_asc') return [...list].sort((a, b) => a.price - b.price);
+    if (sortOption === 'price_desc') return [...list].sort((a, b) => b.price - a.price);
+    return list;
+  };
+
+  const sortControl = (
+    <div style={{display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
+      <span style={{color: 'var(--text-secondary)', fontSize: '0.9rem'}}><i className="fa-solid fa-arrow-down-a-z"></i> Sắp xếp:</span>
+      <select style={{padding: '0.4rem 0.8rem', background: 'var(--input-bg)', color: 'var(--text-primary)', border: '1px solid var(--input-border)', borderRadius: '6px', cursor: 'pointer', outline: 'none', fontSize: '0.9rem'}} value={sortOption} onChange={(e) => setSortOption(e.target.value)}>
+        <option value="default" style={{background: 'var(--input-bg)', color: 'var(--text-primary)'}}>Mặc định</option>
+        <option value="price_asc" style={{background: 'var(--input-bg)', color: 'var(--text-primary)'}}>Giá tăng dần</option>
+        <option value="price_desc" style={{background: 'var(--input-bg)', color: 'var(--text-primary)'}}>Giá giảm dần</option>
+      </select>
+    </div>
+  );
+
+  if (loading) return <div className="loader"></div>;
+
+  if (orderSuccess) {
+    const qrUrl = `https://img.vietqr.io/image/970407-19031234567890-compact2.png?amount=${orderSuccess.finalTotal}&addInfo=${orderSuccess.orderCode}&accountName=POKEMON TCG STORE`;
+    return (
+      <div className="container">
+        <div className="success-container">
+          <i className="fa-solid fa-circle-check success-icon"></i>
+          <h2>Đặt hàng thành công!</h2>
+          <p className="subtitle" style={{marginTop: '1rem'}}>Mã đơn hàng: <strong>{orderSuccess.orderCode}</strong></p>
+          <p>Tổng thanh toán: <strong>{formatCurrency(orderSuccess.finalTotal)}</strong></p>
+          <div className="qr-code"><img src={qrUrl} alt="VietQR" /></div>
+          <button className="btn-primary" style={{marginTop: '2rem'}} onClick={() => setOrderSuccess(null)}>Quay lại</button>
+        </div>
+      </div>
+    );
+  }
+
+  const renderProductGrid = (productList, title, icon, headerAction = null, id = null) => {
+    if (!productList || productList.length === 0) return null;
+    return (
+      <div id={id} style={{marginBottom: '3rem'}}>
+        {title && (
+          <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', paddingBottom: '0.5rem', borderBottom: '2px solid rgba(255,255,255,0.05)', flexWrap: 'wrap', gap: '1rem'}}>
+            <h2 style={{color: 'var(--text-primary)', margin: 0, display: 'flex', alignItems: 'center', gap: '1rem', fontSize: '1.5rem', fontWeight: '700'}}>{icon} <span>{title}</span></h2>
+            {headerAction}
+          </div>
+        )}
+        <div className="product-grid">
+          {productList.map(product => {
+            const qty = cart[product.id] || 0;
+            return (
+              <div key={product.id} className="product-card">
+                <div style={{cursor: 'pointer'}} onClick={() => openProductDetail(product)}>
+                  <div style={{position: 'relative'}}>
+                    <img src={product.imageUrl || 'https://images.unsplash.com/photo-1613771404784-3a5686aa2be3?q=80&w=600&auto=format&fit=crop'} alt={product.name} className="product-image"/>
+                    <div style={{position: 'absolute', top: '10px', right: '10px', display: 'flex', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'flex-end', maxWidth: '150px'}}>
+                      {product.isComingSoon && <div style={{background: 'rgba(168, 85, 247, 0.9)', color: '#fff', padding: '0.2rem 0.5rem', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold'}}><i className="fa-solid fa-clock"></i> <span>Sắp ra mắt</span></div>}
+                      {product.isFeatured && <div style={{background: 'rgba(251, 191, 36, 0.9)', color: '#000', padding: '0.2rem 0.5rem', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold'}}><i className="fa-solid fa-star"></i> <span>Nổi bật</span></div>}
+                      {product.isBestSeller && <div style={{background: 'rgba(239, 68, 68, 0.9)', color: '#fff', padding: '0.2rem 0.5rem', borderRadius: '4px', fontSize: '0.8rem', fontWeight: 'bold'}}><i className="fa-solid fa-fire"></i> Bán chạy</div>}
+                    </div>
+                  </div>
+                  <h3 className="product-title">{product.name}</h3>
+                  <p style={{color: 'var(--text-secondary)', fontSize: '11px', marginBottom: '1rem', flex: 1, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden'}}>{product.description}</p>
+                </div>
+                <div className="product-price">{formatCurrency(product.price)}</div>
+                <div className="product-stock">Kho: {product.stockQuantity}</div>
+                <div className="quantity-controls">
+                  {product.isComingSoon ? (
+                    <span style={{color: '#a855f7', fontSize: '0.9rem', fontWeight: 'bold'}}><i className="fa-solid fa-clock"></i> Sắp ra mắt</span>
+                  ) : (
+                    <React.Fragment>
+                      <button className="btn-icon" onClick={(e) => { e.stopPropagation(); handleQuantityChange(product.id, -1); }} disabled={qty === 0}><i className="fa-solid fa-minus"></i></button>
+                      <span style={{fontWeight: '600', fontSize: '1.2rem'}}>{qty}</span>
+                      <button className="btn-icon" onClick={(e) => { e.stopPropagation(); handleQuantityChange(product.id, 1); }} disabled={qty >= product.stockQuantity || product.stockQuantity === 0}><i className="fa-solid fa-plus"></i></button>
+                    </React.Fragment>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div>
+      <header className="store-header">
+        <div className="store-header-inner">
+          <a href="#" className="store-brand" style={{display: 'flex', alignItems: 'center', gap: '0.5rem'}} onClick={(e) => { e.preventDefault(); setSelectedCategory(null); setSearchQuery(''); }}>
+            <img src="/logo.png" alt="PikaRyu TCG Logo" style={{height: '60px', objectFit: 'contain'}} />
+          </a>
+          
+          {categories.length > 0 && (
+            <div className="category-filters" style={{marginBottom: 0, paddingBottom: 0, position: 'absolute', left: 'max(280px, calc((100vw - 1200px) / 2 + 2rem))', display: 'flex', alignItems: 'center', overflow: 'visible', gap: '0.5rem'}}>
+              <button className={`category-filter-btn ${selectedCategory === null ? 'active' : ''}`} onClick={() => setSelectedCategory(null)}>Tất cả</button>
+              
+              <div className="header-dropdown" style={{position: 'relative'}}>
+                <button className={`category-filter-btn ${selectedCategory !== null ? 'active' : ''}`} style={{display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
+                  {selectedCategory && categories.find(c => c.id === selectedCategory) ? categories.find(c => c.id === selectedCategory).name : 'Danh mục'} <i className="fa-solid fa-chevron-down"></i>
+                </button>
+                <div className="header-dropdown-content">
+                  {categories.map(c => (
+                    <div key={c.id} className={`dropdown-item ${selectedCategory === c.id ? 'active' : ''}`} onClick={() => setSelectedCategory(c.id)}>{c.name}</div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+          <div style={{display: 'flex', alignItems: 'center', gap: '2rem', marginLeft: 'auto'}}>
+            <div className="search-box" style={{minWidth: '250px'}}>
+              <i className="fa-solid fa-search"></i>
+              <input 
+                type="text" 
+                placeholder="Tìm kiếm thẻ bài..." 
+                value={searchQuery} 
+                onChange={(e) => setSearchQuery(e.target.value)} 
+              />
+            </div>
+          <div style={{display: 'flex', gap: '0.5rem', flexShrink: 0, marginLeft: '1rem', alignItems: 'center'}}>
+            <button className="btn-admin-login" onClick={toggleTheme} title="Đổi giao diện">
+               <i className={`fa-solid ${theme === 'light' ? 'fa-moon' : 'fa-sun'}`}></i>
+            </button>
+            <button className="btn-admin-login" onClick={() => setShowCartModal(true)} title="Giỏ hàng" style={{position: 'relative'}}>
+              <i className="fa-solid fa-cart-shopping" style={{color: 'var(--text-primary)'}}></i> <span className="hide-on-mobile">Giỏ hàng</span>
+              {totalItems > 0 && <span style={{position: 'absolute', top: '-5px', right: '-5px', background: 'var(--accent-color)', color: '#fff', fontSize: '0.7rem', padding: '0.1rem 0.4rem', borderRadius: '10px', fontWeight: 'bold'}}>{totalItems}</span>}
+            </button>
+            <button className="btn-admin-login" onClick={() => setShowGradingModal(true)} title="Dịch vụ Chấm điểm PSA">
+              <i className="fa-solid fa-star" style={{color: 'var(--badge-warning-text)'}}></i> <span className="hide-on-mobile">Chấm điểm PSA</span>
+            </button>
+            <button className="btn-admin-login" onClick={() => navigateTo('ADMIN_LOGIN')} title="Đăng nhập Quản trị viên">
+              <i className="fa-solid fa-lock"></i> Quản trị
+            </button>
+          </div>
+          </div>
+        </div>
+      </header>
+      {banners.length > 0 && (
+        <div className="store-banner">
+          <img src={banners[currentBannerIndex].imageUrl} alt={banners[currentBannerIndex].title || 'Banner'} />
+          <div className="store-banner-overlay" style={{ background: (banners[currentBannerIndex].title || banners[currentBannerIndex].description) ? '' : 'none', pointerEvents: 'none' }}>
+            {(banners[currentBannerIndex].title || banners[currentBannerIndex].description || banners[currentBannerIndex].linkUrl) && (
+              <div className="store-banner-content" style={{ pointerEvents: 'auto' }}>
+                {banners[currentBannerIndex].title && <h2>{banners[currentBannerIndex].title}</h2>}
+                {banners[currentBannerIndex].description && <p>{banners[currentBannerIndex].description}</p>}
+                {banners[currentBannerIndex].linkUrl && (
+                  <a href={banners[currentBannerIndex].linkUrl} className="store-banner-link" target="_blank" rel="noopener noreferrer">Xem Chi Tiết</a>
+                )}
+              </div>
+            )}
+            {banners.length > 1 && (
+              <div className="banner-carousel-controls" style={{ pointerEvents: 'auto' }}>
+                {banners.map((b, idx) => (
+                  <span key={b.id} className={`banner-dot ${idx === currentBannerIndex ? 'active' : ''}`} onClick={() => setCurrentBannerIndex(idx)}></span>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="container" style={{paddingTop: 0}}>
+
+      {(!selectedCategory && !searchQuery) ? (
+        <React.Fragment>
+          {renderProductGrid(products.filter(p => p.isFeatured).slice(0, 6), "Sản phẩm Nổi bật", <i className="fa-solid fa-star" style={{color: 'var(--badge-warning-text)'}}></i>, null, "san-pham-noi-bat")}
+          {renderProductGrid(products.filter(p => p.isBestSeller).slice(0, 6), "Bán chạy nhất", <i className="fa-solid fa-fire" style={{color: '#ef4444'}}></i>, null, "san-pham-ban-chay")}
+          {renderProductGrid(products.filter(p => p.isComingSoon).slice(0, 6), "Sắp ra mắt", <i className="fa-solid fa-clock" style={{color: '#a855f7'}}></i>, null, "san-pham-sap-ra-mat")}
+          {(() => {
+            const allProducts = applySort(products);
+            const totalPages = Math.ceil(allProducts.length / itemsPerPage);
+            const paginated = allProducts.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+            return (
+              <React.Fragment>
+                {renderProductGrid(paginated, "Tất cả sản phẩm", <i className="fa-solid fa-boxes-stacked" style={{color: '#3b82f6'}}></i>, sortControl)}
+                {totalPages > 1 && (
+                  <div style={{display: 'flex', justifyContent: 'center', gap: '0.5rem', marginBottom: '3rem', marginTop: '-1.5rem', flexWrap: 'wrap'}}>
+                    {Array.from({length: totalPages}, (_, i) => i + 1).map(p => (
+                      <button key={p} className="btn-icon" style={p === currentPage ? {background: 'var(--accent-color)', color: '#fff', width: '40px', height: '40px', borderRadius: '50%'} : {background: 'var(--glass-bg)', color: 'var(--text-primary)', width: '40px', height: '40px', borderRadius: '50%', border: '1px solid var(--glass-border)'}} onClick={() => setCurrentPage(p)}>{p}</button>
+                    ))}
+                  </div>
+                )}
+              </React.Fragment>
+            );
+          })()}
+        </React.Fragment>
+      ) : (
+        <React.Fragment>
+          {filteredProducts.length === 0 ? (
+            <p style={{textAlign: 'center', color: 'var(--text-secondary)', padding: '2rem'}}>Không tìm thấy sản phẩm nào phù hợp.</p>
+          ) : (
+            (() => {
+              const allFiltered = applySort(filteredProducts);
+              const totalPages = Math.ceil(allFiltered.length / itemsPerPage);
+              const paginated = allFiltered.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+              return (
+                <React.Fragment>
+                  {renderProductGrid(paginated, "Kết quả tìm kiếm", <i className="fa-solid fa-search" style={{color: 'var(--primary)'}}></i>, sortControl)}
+                  {totalPages > 1 && (
+                    <div style={{display: 'flex', justifyContent: 'center', gap: '0.5rem', marginBottom: '3rem', marginTop: '-1.5rem', flexWrap: 'wrap'}}>
+                      {Array.from({length: totalPages}, (_, i) => i + 1).map(p => (
+                        <button key={p} className="btn-icon" style={p === currentPage ? {background: 'var(--accent-color)', color: '#fff', width: '40px', height: '40px', borderRadius: '50%'} : {background: 'var(--glass-bg)', color: 'var(--text-primary)', width: '40px', height: '40px', borderRadius: '50%', border: '1px solid var(--glass-border)'}} onClick={() => setCurrentPage(p)}>{p}</button>
+                      ))}
+                    </div>
+                  )}
+                </React.Fragment>
+              );
+            })()
+          )}
+        </React.Fragment>
+      )}
+
+      {totalItems > 0 && (
+        <div className="floating-bar">
+          <div className="floating-total">Tổng cộng ({totalItems} sp):<br/><span>{formatCurrency(totalPrice)}</span></div>
+          <div style={{display: 'flex', gap: '0.5rem'}}>
+            <button className="btn-icon" onClick={toggleTheme} title="Đổi giao diện" style={{width: '40px', height: '40px', borderRadius: '50%', background: 'var(--card-bg)', border: '1px solid var(--glass-border)', color: 'var(--text-primary)'}}>
+              <i className={`fa-solid ${theme === 'light' ? 'fa-moon' : 'fa-sun'}`}></i>
+            </button>
+            <button className="btn-icon" style={{position: 'relative', width: '40px', height: '40px', borderRadius: '50%', background: 'var(--card-bg)', border: '1px solid var(--glass-border)', color: 'var(--text-primary)'}} onClick={() => setShowCartModal(true)} title="Xem giỏ hàng"><i className="fa-solid fa-cart-shopping"></i></button>
+            <button className="btn-primary" onClick={() => setShowCheckout(true)}>Thanh toán ngay <i className="fa-solid fa-arrow-right"></i></button>
+          </div>
+        </div>
+      )}
+
+      {showCartModal && (
+        <div className="modal-overlay">
+          <div className="modal-content" style={{maxWidth: '600px'}}>
+            <h2 className="modal-title"><i className="fa-solid fa-cart-shopping"></i> Giỏ hàng của bạn</h2>
+            {totalItems === 0 ? (
+              <div style={{textAlign: 'center', padding: '3rem 1rem', color: 'var(--text-secondary)'}}>
+                <i className="fa-solid fa-cart-arrow-down" style={{fontSize: '3rem', marginBottom: '1rem', opacity: 0.5}}></i>
+                <p>Giỏ hàng của bạn đang trống.</p>
+              </div>
+            ) : (
+              <div className="cart-items" style={{maxHeight: '60vh', overflowY: 'auto', paddingRight: '0.5rem'}}>
+                {Object.entries(cart).filter(([_, qty]) => qty > 0).map(([productId, qty]) => {
+                  const product = products.find(p => p.id === parseInt(productId));
+                  if (!product) return null;
+                  return (
+                    <div key={productId} style={{display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1rem', paddingBottom: '1rem', borderBottom: '1px solid var(--glass-border)'}}>
+                      <img src={product.imageUrl || 'https://images.unsplash.com/photo-1613771404784-3a5686aa2be3?q=80&w=600&auto=format&fit=crop'} alt={product.name} style={{width: '60px', height: '60px', objectFit: 'cover', borderRadius: '8px'}} />
+                      <div style={{flex: 1}}>
+                        <div style={{fontWeight: 'bold', fontSize: '0.95rem', marginBottom: '0.2rem'}}>{product.name}</div>
+                        <div style={{color: 'var(--text-secondary)', fontSize: '0.9rem'}}>{formatCurrency(product.price)}</div>
+                      </div>
+                      <div className="quantity-controls" style={{margin: 0, scale: '0.8'}}>
+                        <button className="btn-icon" onClick={() => handleQuantityChange(product.id, -1)}><i className="fa-solid fa-minus"></i></button>
+                        <span style={{fontWeight: '600', fontSize: '1.2rem'}}>{qty}</span>
+                        <button className="btn-icon" onClick={() => handleQuantityChange(product.id, 1)} disabled={qty >= product.stockQuantity || product.stockQuantity === 0}><i className="fa-solid fa-plus"></i></button>
+                      </div>
+                      <div style={{fontWeight: 'bold', minWidth: '90px', textAlign: 'right', color: 'var(--accent-color)'}}>
+                        {formatCurrency(product.price * qty)}
+                      </div>
+                    </div>
+                  );
+                })}
+                <div style={{display: 'flex', justifyContent: 'space-between', fontSize: '1.2rem', fontWeight: 'bold', marginTop: '1rem', paddingTop: '1rem', borderTop: '2px solid var(--glass-border)'}}>
+                  <span>Tổng cộng:</span>
+                  <span style={{color: 'var(--accent-color)'}}>{formatCurrency(totalPrice)}</span>
+                </div>
+              </div>
+            )}
+            <div className="modal-actions" style={{marginTop: '2rem'}}>
+              <button className="btn-secondary" onClick={() => setShowCartModal(false)}>Đóng</button>
+              {totalItems > 0 && <button className="btn-primary" onClick={() => { setShowCartModal(false); setShowCheckout(true); }}>Tiến hành thanh toán <i className="fa-solid fa-arrow-right"></i></button>}
+            </div>
+          </div>
+        </div>
+      )}
+
+            {showCheckout && (
+        <div className="modal-overlay" onClick={() => setShowCheckout(false)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()} style={{maxWidth: '500px'}}>
+            <h2 className="modal-title">Thông báo</h2>
+            <div style={{lineHeight: '1.6', marginBottom: '2rem'}}>
+              <p style={{marginBottom: '1rem'}}>Hệ thống chưa hỗ trợ thanh toán online, quý khách vui lòng liên hệ qua các kênh sau để được hỗ trợ mua hàng:</p>
+              <div style={{display: 'flex', flexDirection: 'column', gap: '1rem', background: 'var(--bg-color)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--glass-border)'}}>
+                <a href="tel:0982804160" style={{display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--text-primary)', textDecoration: 'none'}}>
+                  <i className="fa-solid fa-phone-volume" style={{color: 'var(--accent-color)', width: '24px', textAlign: 'center', fontSize: '1.1rem'}}></i>
+                  <strong>Hotline / Zalo:</strong> 098 280 41 60
+                </a>
+                <a href="https://www.facebook.com/share/1NXmi8hQGQ/" target="_blank" rel="noopener noreferrer" style={{display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--text-primary)', textDecoration: 'none'}}>
+                  <i className="fa-brands fa-facebook" style={{color: '#3b5998', width: '24px', textAlign: 'center', fontSize: '1.2rem'}}></i>
+                  <strong>Fanpage:</strong> PikaRyu TCG
+                </a>
+              </div>
+            </div>
+            <div className="modal-actions" style={{textAlign: 'right'}}>
+              <button className="btn-primary" onClick={() => setShowCheckout(false)}>Đóng</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+
+      {showGradingModal && (
+        <div className="modal-overlay" onClick={() => setShowGradingModal(false)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()} style={{maxWidth: '600px'}}>
+            <h2 className="modal-title"><i className="fa-solid fa-ranking-star" style={{color: 'var(--badge-warning-text)', marginRight: '0.5rem'}}></i> Dịch vụ Đánh giá Thẻ (Card Grading)</h2>
+            
+            <div style={{marginBottom: '1.5rem', lineHeight: '1.6'}}>
+              {gradingPolicy ? (
+                <React.Fragment>
+                  <p style={{color: 'var(--text-secondary)', marginBottom: '1rem'}}>{gradingPolicy.intro}</p>
+                  
+                  <div style={{background: 'rgba(0,0,0,0.2)', padding: '1rem', borderRadius: '8px', marginBottom: '1rem'}}>
+                    <h4 style={{marginBottom: '0.5rem', color: 'var(--accent-color)'}}>Quy trình {gradingPolicy.steps.length} bước:</h4>
+                    <ol style={{paddingLeft: '1.5rem', color: 'var(--text-secondary)'}}>
+                      {gradingPolicy.steps.map((step, idx) => {
+                        const parts = step.split('**');
+                        if (parts.length >= 3) {
+                          return <li key={idx} style={{marginBottom: '0.5rem'}}><strong>{parts[1]}</strong>{parts[2]}</li>;
+                        }
+                        return <li key={idx} style={{marginBottom: '0.5rem'}}>{step}</li>;
+                      })}
+                    </ol>
+                  </div>
+
+                  <div style={{borderLeft: '3px solid var(--success)', paddingLeft: '1rem'}}>
+                    <h4 style={{marginBottom: '0.5rem'}}>Liên hệ ngay với chúng tôi:</h4>
+                    <p><strong><i className="fa-solid fa-phone" style={{width: '20px'}}></i> Hotline/Zalo:</strong> {gradingPolicy.phone}</p>
+                    <p><strong><i className="fa-brands fa-facebook" style={{width: '20px'}}></i> Fanpage:</strong> {gradingPolicy.facebook}</p>
+                    <p><strong><i className="fa-solid fa-location-dot" style={{width: '20px'}}></i> Địa chỉ:</strong> {gradingPolicy.address}</p>
+                  </div>
+                </React.Fragment>
+              ) : (
+                <p>Đang tải chính sách...</p>
+              )}
+            </div>
+
+            <div className="modal-actions">
+              <button className="btn-primary" onClick={() => setShowGradingModal(false)} style={{width: '100%'}}>Đã hiểu</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showProductDetailModal && selectedProduct && (
+        <div className="modal-overlay" onClick={closeProductDetail}>
+          <div className="modal-content product-detail-modal-content" onClick={e => e.stopPropagation()}>
+            <button className="close-btn product-detail-close" onClick={closeProductDetail}><i className="fa-solid fa-times"></i></button>
+            <div className="product-detail-layout">
+              <div className="product-gallery">
+                <div className="product-gallery-main">
+                  <img src={
+                    galleryActiveIndex === 0 
+                      ? selectedProduct.imageUrl 
+                      : (selectedProduct.additionalImages && selectedProduct.additionalImages[galleryActiveIndex - 1])
+                  } alt={selectedProduct.name} />
+                </div>
+                {(selectedProduct.additionalImages && selectedProduct.additionalImages.length > 0) && (
+                  <div className="product-gallery-thumbnails">
+                    <div className={`gallery-thumbnail ${galleryActiveIndex === 0 ? 'active' : ''}`} onClick={() => setGalleryActiveIndex(0)}>
+                      <img src={selectedProduct.imageUrl} alt="Main" />
+                    </div>
+                    {selectedProduct.additionalImages.map((imgUrl, idx) => (
+                      <div key={idx} className={`gallery-thumbnail ${galleryActiveIndex === (idx + 1) ? 'active' : ''}`} onClick={() => setGalleryActiveIndex(idx + 1)}>
+                        <img src={imgUrl} alt={`Thumbnail ${idx+1}`} />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="product-info-section">
+                <h2 className="product-info-title">{selectedProduct.name}</h2>
+                <div className="product-info-meta">
+                  {selectedProduct.category && <span><i className="fa-solid fa-tag"></i> {selectedProduct.category.name}</span>}
+                  <span><i className="fa-solid fa-box"></i> Kho: {selectedProduct.stockQuantity}</span>
+                </div>
+                <div className="product-info-price">{formatCurrency(selectedProduct.price)}</div>
+                <div className="product-info-desc">
+                  {selectedProduct.detailedDescription || selectedProduct.description}
+                </div>
+                {selectedProduct.isComingSoon ? (
+                  <div className="product-add-to-cart" style={{flexDirection: 'column', alignItems: 'flex-start'}}>
+                    <button className="btn-primary" disabled style={{background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'not-allowed'}}><i className="fa-solid fa-clock"></i> Sắp ra mắt - Chưa thể đặt mua</button>
+                  </div>
+                ) : (
+                  <div className="product-add-to-cart">
+                    <div className="quantity-controls" style={{margin: 0, width: '150px'}}>
+                      <button className="btn-icon" onClick={() => handleQuantityChange(selectedProduct.id, -1)} disabled={(cart[selectedProduct.id] || 0) === 0}><i className="fa-solid fa-minus"></i></button>
+                      <span style={{fontWeight: '600', fontSize: '1.2rem'}}>{cart[selectedProduct.id] || 0}</span>
+                      <button className="btn-icon" onClick={() => handleQuantityChange(selectedProduct.id, 1)} disabled={(cart[selectedProduct.id] || 0) >= selectedProduct.stockQuantity || selectedProduct.stockQuantity === 0}><i className="fa-solid fa-plus"></i></button>
+                    </div>
+                    <div style={{color: 'var(--text-secondary)', fontSize: '0.9rem', marginLeft: '1rem'}}>
+                      (Chỉnh số lượng trong giỏ)
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <Footer openGradingModal={() => setShowGradingModal(true)} />
+    </div>
+  );
+};
+
+// ==========================================
+// ADMIN LOGIN COMPONENT
+// ==========================================
+const AdminLogin = ({ navigateTo, onLoginSuccess }) => {
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
+
+  // 0: login, 1: request OTP, 2: reset password
+  const [forgotStep, setForgotStep] = useState(0);
+  const [otp, setOtp] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setError('');
+    setSuccessMsg('');
+    try {
+      const res = await axios.post(`${API_BASE_URL}/admin/login`, { username, password });
+      onLoginSuccess(res.data.token);
+    } catch (err) {
+      setError((err.response && err.response.data && err.response.data.message) || 'Sai tài khoản hoặc mật khẩu');
+    }
+  };
+
+  const handleForgotPassword = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    setSuccessMsg('');
+    try {
+      const res = await axios.post(`${API_BASE_URL}/admin/public/forgot-password`, { username });
+      setSuccessMsg(res.data.message);
+      setForgotStep(2);
+    } catch (err) {
+      setError((err.response && err.response.data && err.response.data.message) || 'Có lỗi xảy ra');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResetPassword = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    setSuccessMsg('');
+    try {
+      const res = await axios.post(`${API_BASE_URL}/admin/public/reset-password`, { username, otp, newPassword });
+      setSuccessMsg(res.data.message);
+      setForgotStep(0);
+      setOtp('');
+      setNewPassword('');
+      setPassword('');
+    } catch (err) {
+      setError((err.response && err.response.data && err.response.data.message) || 'Có lỗi xảy ra');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="container login-container">
+      <div className="admin-nav">
+        <button className="btn-secondary" onClick={() => navigateTo('STOREFRONT')}><i className="fa-solid fa-arrow-left"></i> Về cửa hàng</button>
+      </div>
+      <div className="login-box" style={{position: 'relative'}}>
+        {loading && <div className="loading-spinner"><div className="spinner"></div></div>}
+        
+        {forgotStep === 0 && (
+          <div>
+            <h2>Đăng nhập Quản trị</h2>
+            {successMsg && <p className="success-text" style={{marginBottom: '1rem', color: '#10b981'}}>{successMsg}</p>}
+            <form onSubmit={handleLogin}>
+              <div className="input-group" style={{textAlign: 'left'}}>
+                <label>Tài khoản</label>
+                <input type="text" value={username} onChange={e => setUsername(e.target.value)} required />
+              </div>
+              <div className="input-group" style={{textAlign: 'left'}}>
+                <label>Mật khẩu</label>
+                <input type="password" value={password} onChange={e => setPassword(e.target.value)} required />
+              </div>
+              <div style={{textAlign: 'right', marginBottom: '1rem'}}>
+                <a href="#" onClick={(e) => { e.preventDefault(); setForgotStep(1); setError(''); setSuccessMsg(''); }} style={{color: 'var(--accent-color)', fontSize: '0.9rem', textDecoration: 'none'}}>Quên mật khẩu?</a>
+              </div>
+              {error && <p className="error-text" style={{marginBottom: '1rem'}}>{error}</p>}
+              <button type="submit" className="btn-primary" style={{width: '100%'}}>Đăng nhập</button>
+            </form>
+          </div>
+        )}
+
+        {forgotStep === 1 && (
+          <div>
+            <h2>Khôi phục mật khẩu</h2>
+            <p style={{marginBottom: '1rem', color: 'var(--text-secondary)', fontSize: '0.9rem'}}>Nhập tài khoản quản trị để nhận mã xác nhận qua email.</p>
+            <form onSubmit={handleForgotPassword}>
+              <div className="input-group" style={{textAlign: 'left'}}>
+                <label>Tài khoản</label>
+                <input type="text" value={username} onChange={e => setUsername(e.target.value)} required />
+              </div>
+              {error && <p className="error-text" style={{marginBottom: '1rem'}}>{error}</p>}
+              <button type="submit" className="btn-primary" style={{width: '100%', marginBottom: '1rem'}} disabled={loading}>Gửi mã xác nhận</button>
+              <button type="button" className="btn-secondary" style={{width: '100%'}} onClick={() => { setForgotStep(0); setError(''); setSuccessMsg(''); }} disabled={loading}>Hủy</button>
+            </form>
+          </div>
+        )}
+
+        {forgotStep === 2 && (
+          <div>
+            <h2>Tạo mật khẩu mới</h2>
+            {successMsg && <p className="success-text" style={{marginBottom: '1rem', color: '#10b981'}}>{successMsg}</p>}
+            <p style={{marginBottom: '1rem', color: 'var(--text-secondary)', fontSize: '0.9rem'}}>Kiểm tra hộp thư đến của bạn để lấy mã OTP.</p>
+            <form onSubmit={handleResetPassword}>
+              <div className="input-group" style={{textAlign: 'left'}}>
+                <label>Mã OTP (6 số)</label>
+                <input type="text" value={otp} onChange={e => setOtp(e.target.value)} required maxLength={6} />
+              </div>
+              <div className="input-group" style={{textAlign: 'left'}}>
+                <label>Mật khẩu mới</label>
+                <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} required minLength={6} />
+              </div>
+              {error && <p className="error-text" style={{marginBottom: '1rem'}}>{error}</p>}
+              <button type="submit" className="btn-primary" style={{width: '100%', marginBottom: '1rem'}} disabled={loading}>Đổi mật khẩu</button>
+              <button type="button" className="btn-secondary" style={{width: '100%'}} onClick={() => { setForgotStep(0); setError(''); setSuccessMsg(''); }} disabled={loading}>Hủy</button>
+            </form>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ==========================================
+// ADMIN DASHBOARD COMPONENT
+// ==========================================
+const AdminDashboard = ({ navigateTo, token, onLogout }) => {
+  const [activeTab, setActiveTab] = useState('products');
+  
+  // Product States
+  const [products, setProducts] = useState([]);
+  const [showProductModal, setShowProductModal] = useState(false);
+  const [editingProductId, setEditingProductId] = useState(null);
+  const [productFormData, setProductFormData] = useState({ name: '', description: '', detailedDescription: '', price: '', stockQuantity: '', imageUrl: '', additionalImages: [], isDeleted: false, isFeatured: false, isBestSeller: false, isComingSoon: false, category: null });
+  const [adminProductSearchQuery, setAdminProductSearchQuery] = useState('');
+  const [adminProductCategoryFilter, setAdminProductCategoryFilter] = useState('');
+
+  // Category States
+  const [categories, setCategories] = useState([]);
+  const [showCategoryModal, setShowCategoryModal] = useState(false);
+  const [editingCategoryId, setEditingCategoryId] = useState(null);
+  const [categoryFormData, setCategoryFormData] = useState({ name: '', description: '' });
+  const [adminCategorySearchQuery, setAdminCategorySearchQuery] = useState('');
+  const [adminBannerSearchQuery, setAdminBannerSearchQuery] = useState('');
+
+  // Subscriber & Notification States
+  const [subscribers, setSubscribers] = useState([]);
+  const [notifSubject, setNotifSubject] = useState('');
+  const [notifContent, setNotifContent] = useState('');
+  const [sendingNotif, setSendingNotif] = useState(false);
+  const [notifResult, setNotifResult] = useState(null);
+
+  // Banner States
+  const [banners, setBanners] = useState([]);
+  const [showBannerModal, setShowBannerModal] = useState(false);
+  const [editingBannerId, setEditingBannerId] = useState(null);
+  const [bannerFormData, setBannerFormData] = useState({ title: '', description: '', imageUrl: '', linkUrl: '', isActive: true });
+
+  // Settings States
+  const [gradingPolicyForm, setGradingPolicyForm] = useState({intro: '', steps: [], phone: '', facebook: '', address: ''});
+  const [savingSettings, setSavingSettings] = useState(false);
+
+  // Data Fetching
+  const fetchProducts = async () => {
+    try {
+      const res = await axios.get(`${API_BASE_URL}/admin/products`, { headers: { Authorization: token } });
+      setProducts(res.data);
+    } catch (err) { if (err.response && err.response.status === 401) onLogout(); }
+  };
+
+  const fetchCategories = async () => {
+    try {
+      const res = await axios.get(`${API_BASE_URL}/admin/categories`, { headers: { Authorization: token } });
+      setCategories(res.data);
+    } catch (err) { console.error(err); }
+  };
+
+  const fetchBanners = async () => {
+    try {
+      const res = await axios.get(`${API_BASE_URL}/admin/banners`, { headers: { Authorization: token } });
+      setBanners(res.data);
+    } catch (err) { console.error(err); }
+  };
+
+  const fetchSubscribers = async () => {
+    try {
+      const res = await axios.get(`${API_BASE_URL}/admin/subscribers`, { headers: { Authorization: token } });
+      setSubscribers(res.data);
+    } catch (err) { console.error(err); }
+  };
+
+  const fetchSettings = async () => {
+    try {
+      const res = await axios.get(`${API_BASE_URL}/public/settings/gradingPolicy`);
+      if (res.data && res.data.value) setGradingPolicyForm(JSON.parse(res.data.value));
+    } catch (err) { console.error(err); }
+  };
+
+  useEffect(() => { 
+    fetchProducts(); 
+    fetchCategories();
+    fetchBanners();
+    fetchSubscribers();
+    fetchSettings();
+  }, []);
+
+  // --- Banner Handlers ---
+  const handleBannerDelete = async (id) => {
+    if (!confirm('Bạn có chắc muốn xóa banner này?')) return;
+    try {
+      await axios.delete(`${API_BASE_URL}/admin/banners/${id}`, { headers: { Authorization: token } });
+      fetchBanners();
+    } catch (err) { alert('Lỗi khi xóa banner!'); }
+  };
+
+  // --- Settings Handlers ---
+  const handleSaveSettings = async (e) => {
+    e.preventDefault();
+    setSavingSettings(true);
+    try {
+      await axios.put(`${API_BASE_URL}/admin/settings/gradingPolicy`, { value: JSON.stringify(gradingPolicyForm) }, { headers: { Authorization: token } });
+      alert('Đã lưu cấu hình thành công!');
+    } catch (err) {
+      alert('Lỗi khi lưu cấu hình!');
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+
+  const openBannerModal = (banner = null) => {
+    if (banner) {
+      setEditingBannerId(banner.id);
+      setBannerFormData({ 
+        title: banner.title, 
+        description: banner.description || '', 
+        imageUrl: banner.imageUrl || '', 
+        linkUrl: banner.linkUrl || '', 
+        isActive: banner.isActive 
+      });
+    } else {
+      setEditingBannerId(null);
+      setBannerFormData({ title: '', description: '', imageUrl: '', linkUrl: '', isActive: true });
+    }
+    setShowBannerModal(true);
+  };
+
+  const handleBannerImageUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const uploadData = new FormData();
+    uploadData.append('file', file);
+    try {
+      const res = await axios.post(`${API_BASE_URL}/admin/upload`, uploadData, { headers: { Authorization: token, 'Content-Type': 'multipart/form-data' } });
+      setBannerFormData({...bannerFormData, imageUrl: res.data.imageUrl});
+    } catch (err) { alert('Lỗi khi tải ảnh lên!'); }
+  };
+
+  const handleSaveBanner = async (e) => {
+    e.preventDefault();
+    try {
+      if (editingBannerId) {
+        await axios.put(`${API_BASE_URL}/admin/banners/${editingBannerId}`, bannerFormData, { headers: { Authorization: token } });
+      } else {
+        await axios.post(`${API_BASE_URL}/admin/banners`, bannerFormData, { headers: { Authorization: token } });
+      }
+      setShowBannerModal(false);
+      fetchBanners();
+    } catch (err) { alert('Lỗi khi lưu banner!'); }
+  };
+
+  // --- Category Handlers ---
+  const handleCategoryDelete = async (id) => {
+    if (!confirm('Bạn có chắc muốn xóa danh mục này? LƯU Ý: Nếu có sản phẩm thuộc danh mục này, việc xóa có thể gây lỗi!')) return;
+    try {
+      await axios.delete(`${API_BASE_URL}/admin/categories/${id}`, { headers: { Authorization: token } });
+      fetchCategories();
+    } catch (err) { alert('Lỗi khi xóa danh mục! Có thể do còn sản phẩm thuộc danh mục này.'); }
+  };
+
+  const openCategoryModal = (cat = null) => {
+    if (cat) {
+      setEditingCategoryId(cat.id);
+      setCategoryFormData({ name: cat.name, description: cat.description || '' });
+    } else {
+      setEditingCategoryId(null);
+      setCategoryFormData({ name: '', description: '' });
+    }
+    setShowCategoryModal(true);
+  };
+
+  const handleSaveCategory = async (e) => {
+    e.preventDefault();
+    try {
+      if (editingCategoryId) {
+        await axios.put(`${API_BASE_URL}/admin/categories/${editingCategoryId}`, categoryFormData, { headers: { Authorization: token } });
+      } else {
+        await axios.post(`${API_BASE_URL}/admin/categories`, categoryFormData, { headers: { Authorization: token } });
+      }
+      setShowCategoryModal(false);
+      fetchCategories();
+    } catch (err) { alert('Lỗi khi lưu danh mục!'); }
+  };
+
+  // --- Product Handlers ---
+  const toggleProductFeature = async (product, featureField) => {
+    try {
+      const updatedData = {
+        name: product.name, description: product.description || '', detailedDescription: product.detailedDescription || '', price: product.price, 
+        stockQuantity: product.stockQuantity, imageUrl: product.imageUrl || '', additionalImages: product.additionalImages || [], isDeleted: product.isDeleted,
+        isFeatured: featureField === 'isFeatured' ? !product.isFeatured : (product.isFeatured || false),
+        isBestSeller: featureField === 'isBestSeller' ? !product.isBestSeller : (product.isBestSeller || false),
+        isComingSoon: featureField === 'isComingSoon' ? !product.isComingSoon : (product.isComingSoon || false),
+        category: product.category ? { id: product.category.id } : null
+      };
+      await axios.put(`${API_BASE_URL}/admin/products/${product.id}`, updatedData, { headers: { Authorization: token } });
+      fetchProducts();
+    } catch (err) { alert('Lỗi khi cập nhật sản phẩm!'); }
+  };
+
+  const handleProductDelete = async (id) => {
+    if (!confirm('Bạn có chắc muốn xóa/ẩn sản phẩm này?')) return;
+    try {
+      await axios.delete(`${API_BASE_URL}/admin/products/${id}`, { headers: { Authorization: token } });
+      fetchProducts();
+    } catch (err) { alert('Lỗi khi xóa!'); }
+  };
+
+  const openProductModal = (product = null) => {
+    if (product) {
+      setEditingProductId(product.id);
+      setProductFormData({ 
+        name: product.name, description: product.description || '', detailedDescription: product.detailedDescription || '', price: product.price, 
+        stockQuantity: product.stockQuantity, imageUrl: product.imageUrl || '', additionalImages: product.additionalImages || [], isDeleted: product.isDeleted,
+        isFeatured: product.isFeatured || false, isBestSeller: product.isBestSeller || false, isComingSoon: product.isComingSoon || false,
+        category: product.category ? { id: product.category.id } : null
+      });
+    } else {
+      setEditingProductId(null);
+      setProductFormData({ name: '', description: '', detailedDescription: '', price: '', stockQuantity: '', imageUrl: '', additionalImages: [], isDeleted: false, isFeatured: false, isBestSeller: false, isComingSoon: false, category: null });
+    }
+    setShowProductModal(true);
+  };
+
+  const handleImageUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const uploadData = new FormData();
+    uploadData.append('file', file);
+    try {
+      const res = await axios.post(`${API_BASE_URL}/admin/upload`, uploadData, { headers: { Authorization: token, 'Content-Type': 'multipart/form-data' } });
+      setProductFormData({...productFormData, imageUrl: res.data.imageUrl});
+    } catch (err) { alert('Lỗi khi tải ảnh lên!'); }
+  };
+
+  const handleAdditionalImageUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const uploadData = new FormData();
+    uploadData.append('file', file);
+    try {
+      const res = await axios.post(`${API_BASE_URL}/admin/upload`, uploadData, { headers: { Authorization: token, 'Content-Type': 'multipart/form-data' } });
+      const currentImages = productFormData.additionalImages || [];
+      setProductFormData({...productFormData, additionalImages: [...currentImages, res.data.imageUrl]});
+    } catch (err) { alert('Lỗi khi tải ảnh lên!'); }
+  };
+
+  const removeAdditionalImage = (index) => {
+    const newImages = [...productFormData.additionalImages];
+    newImages.splice(index, 1);
+    setProductFormData({...productFormData, additionalImages: newImages});
+  };
+
+  const handleSaveProduct = async (e) => {
+    e.preventDefault();
+    try {
+      if (editingProductId) {
+        await axios.put(`${API_BASE_URL}/admin/products/${editingProductId}`, productFormData, { headers: { Authorization: token } });
+      } else {
+        await axios.post(`${API_BASE_URL}/admin/products`, productFormData, { headers: { Authorization: token } });
+      }
+      setShowProductModal(false);
+      fetchProducts();
+    } catch (err) { alert('Lỗi khi lưu sản phẩm!'); }
+  };
+
+  const filteredAdminProducts = products.filter(p => {
+    const matchCategory = adminProductCategoryFilter ? (p.category && p.category.id.toString() === adminProductCategoryFilter) : true;
+    const matchSearch = p.name.toLowerCase().includes(adminProductSearchQuery.toLowerCase());
+    return matchCategory && matchSearch;
+  });
+
+  return (
+    <div className="container" style={{maxWidth: '1400px'}}>
+      <div className="admin-header">
+        <h2><i className="fa-solid fa-shield-halved"></i> Admin Dashboard</h2>
+        <div style={{display: 'flex', gap: '1rem'}}>
+          <button className="btn-secondary" onClick={() => navigateTo('STOREFRONT')}>Về cửa hàng</button>
+          <button className="btn-danger btn-small" onClick={onLogout}>Đăng xuất</button>
+        </div>
+      </div>
+
+      <div className="tabs">
+        <button className={`tab ${activeTab === 'products' ? 'active' : ''}`} onClick={() => setActiveTab('products')}>Quản lý Sản phẩm</button>
+        <button className={`tab ${activeTab === 'categories' ? 'active' : ''}`} onClick={() => setActiveTab('categories')}>Quản lý Danh mục</button>
+        <button className={`tab ${activeTab === 'banners' ? 'active' : ''}`} onClick={() => setActiveTab('banners')}>Quản lý Banner</button>
+        <button className={`tab ${activeTab === 'settings' ? 'active' : ''}`} onClick={() => { setActiveTab('settings'); fetchSettings(); }}>Cấu hình Hệ thống</button>
+        <button className={`tab ${activeTab === 'notifications' ? 'active' : ''}`} onClick={() => { setActiveTab('notifications'); fetchSubscribers(); }}><i className="fa-solid fa-bell" style={{marginRight: '0.3rem'}}></i>Thông báo</button>
+      </div>
+
+      {activeTab === 'products' && (
+        <div>
+          <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '1rem', alignItems: 'center', flexWrap: 'wrap', gap: '1rem'}}>
+            <h3>Danh sách Sản phẩm</h3>
+            <div style={{display: 'flex', gap: '1rem', flex: 1, justifyContent: 'flex-end', alignItems: 'center'}}>
+              <div className="search-box" style={{marginBottom: 0}}>
+                <i className="fa-solid fa-search"></i>
+                <input 
+                  type="text" 
+                  placeholder="Tìm kiếm sản phẩm..." 
+                  value={adminProductSearchQuery} 
+                  onChange={(e) => setAdminProductSearchQuery(e.target.value)} 
+                />
+              </div>
+              <select 
+                value={adminProductCategoryFilter} 
+                onChange={(e) => setAdminProductCategoryFilter(e.target.value)}
+                style={{padding: '0.8rem 1rem', borderRadius: '30px', border: '1px solid var(--glass-border)', background: 'var(--card-bg)', color: 'var(--text-primary)', outline: 'none'}}
+              >
+                <option value="">Tất cả danh mục</option>
+                {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+              <button className="btn-primary" onClick={() => openProductModal()}><i className="fa-solid fa-plus"></i> Thêm Sản phẩm</button>
+            </div>
+          </div>
+          <div className="admin-table-container">
+            <table className="admin-table">
+              <thead>
+                <tr>
+                  <th>ID</th><th>Ảnh</th><th>Tên sản phẩm</th><th>Danh mục</th><th>Giá</th><th>Tồn kho</th><th>Trạng thái</th><th>Hành động</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredAdminProducts.map(p => (
+                  <tr key={p.id}>
+                    <td>{p.id}</td>
+                    <td><img src={p.imageUrl || 'https://via.placeholder.com/50'} alt={p.name} /></td>
+                    <td><strong>{p.name}</strong><br/><small style={{color: 'var(--text-secondary)'}}>{p.description}</small></td>
+                    <td>{p.category ? <span className="category-tag">{p.category.name}</span> : <em style={{color: '#94a3b8'}}>(Chưa phân loại)</em>}</td>
+                    <td style={{color: 'var(--accent-color)', fontWeight: 'bold'}}>{formatCurrency(p.price)}</td>
+                    <td>{p.stockQuantity}</td>
+                    <td>{p.isDeleted ? <span style={{background: 'var(--badge-danger-bg)', color: 'var(--badge-danger-text)', padding: '4px 8px', borderRadius: '4px', fontSize: '0.8rem'}}>Đã ẩn</span> : <span style={{background: 'var(--badge-success-bg)', color: 'var(--badge-success-text)', padding: '4px 8px', borderRadius: '4px', fontSize: '0.8rem'}}>Đang bán</span>}</td>
+                    <td>
+                      <div className="admin-actions">
+                        <button className={`btn-small ${p.isFeatured ? 'btn-primary' : 'btn-secondary'}`} style={{padding: '0.4rem 0.6rem'}} onClick={() => toggleProductFeature(p, 'isFeatured')} title={p.isFeatured ? "Hủy Nổi bật" : "Đánh dấu Nổi bật"}><i className="fa-solid fa-star" style={{color: p.isFeatured ? '#d97706' : 'inherit'}}></i></button>
+                        <button className={`btn-small ${p.isBestSeller ? 'btn-danger' : 'btn-secondary'}`} style={{padding: '0.4rem 0.6rem'}} onClick={() => toggleProductFeature(p, 'isBestSeller')} title={p.isBestSeller ? "Hủy Bán chạy" : "Đánh dấu Bán chạy"}><i className="fa-solid fa-fire" style={{color: p.isBestSeller ? '#fff' : 'inherit'}}></i></button>
+                        <button className={`btn-small ${p.isComingSoon ? 'btn-primary' : 'btn-secondary'}`} style={{padding: '0.4rem 0.6rem', background: p.isComingSoon ? 'rgba(168, 85, 247, 0.2)' : ''}} onClick={() => toggleProductFeature(p, 'isComingSoon')} title={p.isComingSoon ? "Hủy Sắp ra mắt" : "Đánh dấu Sắp ra mắt"}><i className="fa-solid fa-clock" style={{color: p.isComingSoon ? '#a855f7' : 'inherit'}}></i></button>
+                        <button className="btn-secondary btn-small" onClick={() => openProductModal(p)} style={{padding: '0.4rem 0.8rem', fontSize: '0.875rem'}} title="Sửa"><i className="fa-solid fa-pen"></i></button>
+                        {!p.isDeleted && <button className="btn-danger btn-small" onClick={() => handleProductDelete(p.id)} title="Xóa/Ẩn"><i className="fa-solid fa-trash"></i></button>}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {filteredAdminProducts.length === 0 && <tr><td colSpan="8" style={{textAlign: 'center'}}>Chưa có dữ liệu</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'categories' && (
+        <div>
+          <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '1rem', alignItems: 'center', flexWrap: 'wrap', gap: '1rem'}}>
+            <h3>Danh sách Danh mục</h3>
+            <div style={{display: 'flex', gap: '1rem', flex: 1, justifyContent: 'flex-end', alignItems: 'center'}}>
+              <div className="search-box" style={{marginBottom: 0}}>
+                <i className="fa-solid fa-search"></i>
+                <input 
+                  type="text" 
+                  placeholder="Tìm kiếm danh mục..." 
+                  value={adminCategorySearchQuery} 
+                  onChange={(e) => setAdminCategorySearchQuery(e.target.value)} 
+                />
+              </div>
+              <button className="btn-primary" onClick={() => openCategoryModal()}><i className="fa-solid fa-plus"></i> Thêm Danh mục</button>
+            </div>
+          </div>
+          <div className="admin-table-container">
+            <table className="admin-table">
+              <thead><tr><th>ID</th><th>Tên Danh mục</th><th>Mô tả</th><th>Hành động</th></tr></thead>
+              <tbody>
+                {categories.filter(c => c.name.toLowerCase().includes(adminCategorySearchQuery.toLowerCase()) || (c.description && c.description.toLowerCase().includes(adminCategorySearchQuery.toLowerCase()))).map(c => (
+                  <tr key={c.id}>
+                    <td>{c.id}</td>
+                    <td><strong>{c.name}</strong></td>
+                    <td>{c.description}</td>
+                    <td>
+                      <div className="admin-actions">
+                        <button className="btn-secondary btn-small" onClick={() => openCategoryModal(c)} style={{padding: '0.4rem 0.8rem'}}><i className="fa-solid fa-pen"></i></button>
+                        <button className="btn-danger btn-small" onClick={() => handleCategoryDelete(c.id)}><i className="fa-solid fa-trash"></i></button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {categories.length === 0 && <tr><td colSpan="4" style={{textAlign: 'center'}}>Chưa có dữ liệu</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'notifications' && (
+        <div>
+          {/* Compose notification */}
+          <div style={{background: 'rgba(102,126,234,0.08)', border: '1px solid rgba(102,126,234,0.2)', borderRadius: '12px', padding: '1.5rem', marginBottom: '2rem'}}>
+            <h3 style={{marginBottom: '1rem'}}><i className="fa-solid fa-paper-plane" style={{marginRight: '0.5rem', color: 'var(--accent-color)'}}></i>Gửi thông báo đến tất cả Subscriber</h3>
+            <div className="input-group">
+              <label>Tiêu đề email *</label>
+              <input type="text" placeholder="VD: Hàng mới về - Scarlet & Violet 151" value={notifSubject} onChange={e => setNotifSubject(e.target.value)} />
+            </div>
+            <div className="input-group">
+              <label>Nội dung thông báo *</label>
+              <textarea rows="5" placeholder="Nhập nội dung thông báo gửi đến khách hàng..." value={notifContent} onChange={e => setNotifContent(e.target.value)} style={{width: '100%', padding: '0.75rem', background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '8px', color: 'var(--text-primary)', resize: 'vertical', fontFamily: 'inherit', fontSize: '0.95rem'}}></textarea>
+            </div>
+            <div style={{display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap'}}>
+              <button className="btn-primary" disabled={sendingNotif || !notifSubject.trim() || !notifContent.trim()} onClick={async () => {
+                setSendingNotif(true); setNotifResult(null);
+                try {
+                  const res = await axios.post(`${API_BASE_URL}/admin/notifications/send`, { subject: notifSubject, content: notifContent }, { headers: { Authorization: token } });
+                  setNotifResult({ type: 'success', message: `${res.data.message} (${res.data.sentCount} email đã gửi)` });
+                  setNotifSubject(''); setNotifContent('');
+                } catch (err) {
+                  setNotifResult({ type: 'error', message: (err.response && err.response.data && err.response.data.message) || 'Lỗi khi gửi thông báo!' });
+                } finally { setSendingNotif(false); }
+              }}>
+                {sendingNotif ? <span><i className="fa-solid fa-spinner fa-spin"></i> Đang gửi...</span> : <span><i className="fa-solid fa-paper-plane"></i> Gửi thông báo</span>}
+              </button>
+              <span style={{color: '#94a3b8', fontSize: '0.85rem'}}>
+                <i className="fa-solid fa-circle-info"></i> Chỉ gửi đến {subscribers.filter(s => s.verified).length} email đã xác nhận
+              </span>
+            </div>
+            {notifResult && (
+              <div style={{marginTop: '1rem', padding: '0.75rem 1rem', borderRadius: '8px', background: notifResult.type === 'success' ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)', color: notifResult.type === 'success' ? '#059669' : '#dc2626', fontSize: '0.9rem'}}>
+                <i className={`fa-solid ${notifResult.type === 'success' ? 'fa-circle-check' : 'fa-circle-xmark'}`} style={{marginRight: '0.5rem'}}></i>
+                {notifResult.message}
+              </div>
+            )}
+          </div>
+
+          {/* Subscriber list */}
+          <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '1rem', alignItems: 'center'}}>
+            <h3>Danh sách Email đăng ký ({subscribers.length})</h3>
+            <button className="btn-secondary" onClick={fetchSubscribers}><i className="fa-solid fa-arrows-rotate"></i> Làm mới</button>
+          </div>
+          <div className="admin-table-container">
+            <table className="admin-table">
+              <thead><tr><th>ID</th><th>Email</th><th>Trạng thái</th><th>Ngày đăng ký</th><th>Hành động</th></tr></thead>
+              <tbody>
+                {subscribers.map(s => (
+                  <tr key={s.id}>
+                    <td>{s.id}</td>
+                    <td><strong>{s.email}</strong></td>
+                    <td>
+                      {s.verified
+                        ? <span style={{background: 'rgba(16,185,129,0.2)', color: '#059669', padding: '4px 10px', borderRadius: '4px', fontSize: '0.8rem'}}><i className="fa-solid fa-circle-check" style={{marginRight: '4px'}}></i>Đã xác nhận</span>
+                        : <span style={{background: 'rgba(251,191,36,0.2)', color: 'var(--badge-warning-text)', padding: '4px 10px', borderRadius: '4px', fontSize: '0.8rem'}}><i className="fa-solid fa-clock" style={{marginRight: '4px'}}></i>Chờ xác nhận</span>
+                      }
+                    </td>
+                    <td style={{color: '#94a3b8', fontSize: '0.85rem'}}>{s.subscribedAt ? new Date(s.subscribedAt).toLocaleString('vi-VN') : '—'}</td>
+                    <td>
+                      <button className="btn-danger btn-small" onClick={async () => {
+                        if (!confirm(`Xóa subscriber ${s.email}?`)) return;
+                        try {
+                          await axios.delete(`${API_BASE_URL}/admin/subscribers/${s.id}`, { headers: { Authorization: token } });
+                          fetchSubscribers();
+                        } catch (err) { alert('Lỗi khi xóa!'); }
+                      }}><i className="fa-solid fa-trash"></i></button>
+                    </td>
+                  </tr>
+                ))}
+                {subscribers.length === 0 && <tr><td colSpan="5" style={{textAlign: 'center'}}>Chưa có ai đăng ký</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'banners' && (
+        <div>
+          <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '1rem', alignItems: 'center', flexWrap: 'wrap', gap: '1rem'}}>
+            <h3>Quản lý Banner Quảng Cáo</h3>
+            <div style={{display: 'flex', gap: '1rem', flex: 1, justifyContent: 'flex-end', alignItems: 'center'}}>
+              <div className="search-box" style={{marginBottom: 0}}>
+                <i className="fa-solid fa-search"></i>
+                <input 
+                  type="text" 
+                  placeholder="Tìm kiếm banner..." 
+                  value={adminBannerSearchQuery} 
+                  onChange={(e) => setAdminBannerSearchQuery(e.target.value)} 
+                />
+              </div>
+              <button className="btn-primary" onClick={() => openBannerModal()}><i className="fa-solid fa-plus"></i> Thêm Banner</button>
+            </div>
+          </div>
+          <div className="admin-table-container">
+            <table className="admin-table">
+              <thead><tr><th>ID</th><th>Ảnh</th><th>Tiêu đề</th><th>Link đích</th><th>Trạng thái</th><th>Hành động</th></tr></thead>
+              <tbody>
+                {banners.filter(b => b.title.toLowerCase().includes(adminBannerSearchQuery.toLowerCase()) || (b.description && b.description.toLowerCase().includes(adminBannerSearchQuery.toLowerCase()))).map(b => (
+                  <tr key={b.id}>
+                    <td>{b.id}</td>
+                    <td><img src={b.imageUrl || 'https://via.placeholder.com/100x50'} alt={b.title} style={{width: '100px', height: '50px', objectFit: 'cover'}} /></td>
+                    <td><strong>{b.title}</strong><br/><small style={{color: 'var(--text-secondary)'}}>{b.description}</small></td>
+                    <td>{b.linkUrl ? <a href={b.linkUrl} target="_blank" rel="noopener noreferrer" style={{color: 'var(--accent-color)'}}><i className="fa-solid fa-link"></i> Xem link</a> : <em style={{color: '#94a3b8'}}>Không có</em>}</td>
+                    <td>{b.isActive ? <span style={{background: 'var(--badge-success-bg)', color: 'var(--badge-success-text)', padding: '4px 8px', borderRadius: '4px', fontSize: '0.8rem'}}>Đang hiển thị</span> : <span style={{background: 'var(--badge-danger-bg)', color: 'var(--badge-danger-text)', padding: '4px 8px', borderRadius: '4px', fontSize: '0.8rem'}}>Đã ẩn</span>}</td>
+                    <td>
+                      <div className="admin-actions">
+                        <button className="btn-secondary btn-small" onClick={() => openBannerModal(b)} style={{padding: '0.4rem 0.8rem'}}><i className="fa-solid fa-pen"></i></button>
+                        <button className="btn-danger btn-small" onClick={() => handleBannerDelete(b.id)}><i className="fa-solid fa-trash"></i></button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {banners.length === 0 && <tr><td colSpan="6" style={{textAlign: 'center'}}>Chưa có banner nào</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'settings' && (
+        <div style={{maxWidth: '800px', margin: '0 auto'}}>
+          <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '1rem', alignItems: 'center'}}>
+            <h3>Cấu hình Hệ thống (Chính sách Đánh giá)</h3>
+          </div>
+          <form onSubmit={handleSaveSettings} style={{background: 'var(--card-bg)', padding: '2rem', borderRadius: '12px', border: '1px solid var(--glass-border)'}}>
+            <div className="input-group">
+              <label>Lời giới thiệu</label>
+              <textarea 
+                value={gradingPolicyForm.intro} 
+                onChange={e => setGradingPolicyForm({...gradingPolicyForm, intro: e.target.value})} 
+                rows="3" required 
+              />
+            </div>
+            
+            <div className="input-group">
+              <label style={{display: 'flex', justifyContent: 'space-between'}}>
+                <span>Các bước quy trình</span>
+                <button type="button" className="btn-secondary btn-small" onClick={() => setGradingPolicyForm({...gradingPolicyForm, steps: [...gradingPolicyForm.steps, '']})}>
+                  <i className="fa-solid fa-plus"></i> Thêm bước
+                </button>
+              </label>
+              {gradingPolicyForm.steps.map((step, idx) => (
+                <div key={idx} style={{display: 'flex', gap: '0.5rem', marginBottom: '0.5rem'}}>
+                  <span style={{padding: '0.8rem', background: 'rgba(255,255,255,0.05)', borderRadius: '8px'}}>{idx + 1}.</span>
+                  <input 
+                    type="text" 
+                    value={step} 
+                    onChange={e => {
+                      const newSteps = [...gradingPolicyForm.steps];
+                      newSteps[idx] = e.target.value;
+                      setGradingPolicyForm({...gradingPolicyForm, steps: newSteps});
+                    }} 
+                    placeholder="VD: **Tiêu đề:** Nội dung bước" 
+                    required 
+                  />
+                  <button type="button" className="btn-danger btn-small" onClick={() => {
+                    const newSteps = [...gradingPolicyForm.steps];
+                    newSteps.splice(idx, 1);
+                    setGradingPolicyForm({...gradingPolicyForm, steps: newSteps});
+                  }}><i className="fa-solid fa-trash"></i></button>
+                </div>
+              ))}
+            </div>
+
+            <h4 style={{marginTop: '2rem', marginBottom: '1rem', borderBottom: '1px solid var(--glass-border)', paddingBottom: '0.5rem'}}>Thông tin Liên hệ</h4>
+            <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem'}}>
+              <div className="input-group">
+                <label>Hotline/Zalo</label>
+                <input type="text" value={gradingPolicyForm.phone} onChange={e => setGradingPolicyForm({...gradingPolicyForm, phone: e.target.value})} required />
+              </div>
+              <div className="input-group">
+                <label>Fanpage</label>
+                <input type="text" value={gradingPolicyForm.facebook} onChange={e => setGradingPolicyForm({...gradingPolicyForm, facebook: e.target.value})} required />
+              </div>
+            </div>
+            <div className="input-group">
+              <label>Địa chỉ cửa hàng</label>
+              <input type="text" value={gradingPolicyForm.address} onChange={e => setGradingPolicyForm({...gradingPolicyForm, address: e.target.value})} required />
+            </div>
+
+            <div style={{marginTop: '2rem', textAlign: 'right'}}>
+              <button type="submit" className="btn-primary" disabled={savingSettings}>
+                {savingSettings ? <i className="fa-solid fa-spinner fa-spin"></i> : <i className="fa-solid fa-save"></i>} {savingSettings ? 'Đang lưu...' : 'Lưu cấu hình'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {showBannerModal && (
+        <div className="modal-overlay">
+          <div className="modal-content" style={{maxWidth: '500px'}}>
+            <h2 className="modal-title">{editingBannerId ? 'Sửa Banner' : 'Thêm Banner'}</h2>
+            <form onSubmit={handleSaveBanner}>
+              <div className="input-group">
+                <label>Tiêu đề</label>
+                <input type="text" value={bannerFormData.title} onChange={e => setBannerFormData({...bannerFormData, title: e.target.value})} />
+              </div>
+              <div className="input-group">
+                <label>Mô tả ngắn</label>
+                <input type="text" value={bannerFormData.description} onChange={e => setBannerFormData({...bannerFormData, description: e.target.value})} />
+              </div>
+              <div className="input-group">
+                <label>Hình ảnh Banner *</label>
+                <div style={{display: 'flex', gap: '0.5rem', marginBottom: '0.5rem'}}><input type="file" accept="image/*" onChange={handleBannerImageUpload} style={{flex: 1, padding: '0.5rem'}} /></div>
+                <input type="url" placeholder="Hoặc nhập link ảnh..." value={bannerFormData.imageUrl} onChange={e => setBannerFormData({...bannerFormData, imageUrl: e.target.value})} required />
+                {bannerFormData.imageUrl && <div style={{marginTop: '0.5rem', textAlign: 'center'}}><img src={bannerFormData.imageUrl} alt="Preview" style={{maxHeight: '100px', width: '100%', objectFit: 'cover', borderRadius: '8px'}} /></div>}
+              </div>
+              <div className="input-group">
+                <label>Đường dẫn khi click (tùy chọn)</label>
+                <input type="url" placeholder="VD: https://..." value={bannerFormData.linkUrl} onChange={e => setBannerFormData({...bannerFormData, linkUrl: e.target.value})} />
+              </div>
+              <div className="input-group" style={{display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
+                <input type="checkbox" id="isActive" checked={bannerFormData.isActive} onChange={e => setBannerFormData({...bannerFormData, isActive: e.target.checked})} style={{width: 'auto'}} />
+                <label htmlFor="isActive" style={{margin: 0, color: 'var(--text-primary)'}}>Hiển thị trên Cửa hàng</label>
+              </div>
+              <div className="modal-actions">
+                <button type="button" className="btn-secondary" onClick={() => setShowBannerModal(false)}>Hủy</button>
+                <button type="submit" className="btn-primary">Lưu</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showProductModal && (
+        <div className="modal-overlay">
+          <div className="modal-content" style={{maxWidth: '900px', width: '95%'}}>
+            <h2 className="modal-title">{editingProductId ? 'Sửa Sản phẩm' : 'Thêm Sản phẩm'}</h2>
+            <form onSubmit={handleSaveProduct}>
+              <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem'}}>
+                
+                {/* Cột trái: Thông tin */}
+                <div>
+                  <div className="input-group">
+                    <label>Tên sản phẩm</label>
+                    <input type="text" value={productFormData.name} onChange={e => setProductFormData({...productFormData, name: e.target.value})} required />
+                  </div>
+                  <div className="input-group">
+                    <label>Danh mục</label>
+                    <select value={productFormData.category ? productFormData.category.id : ''} onChange={e => setProductFormData({...productFormData, category: e.target.value ? {id: parseInt(e.target.value)} : null})}>
+                      <option value="">-- Chọn danh mục (Không bắt buộc) --</option>
+                      {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                  </div>
+                  <div className="input-group">
+                    <label>Mô tả ngắn</label>
+                    <input type="text" value={productFormData.description} onChange={e => setProductFormData({...productFormData, description: e.target.value})} />
+                  </div>
+                  <div className="input-group">
+                    <label>Mô tả chi tiết</label>
+                    <textarea rows="6" value={productFormData.detailedDescription} onChange={e => setProductFormData({...productFormData, detailedDescription: e.target.value})} placeholder="Nhập mô tả chi tiết sản phẩm..." style={{width: '100%', padding: '0.8rem', borderRadius: '8px', border: '1px solid var(--glass-border)', background: 'rgba(255, 255, 255, 0.05)', color: 'var(--text-primary)', resize: 'vertical'}}></textarea>
+                  </div>
+                  <div style={{display: 'flex', gap: '1rem'}}>
+                    <div className="input-group" style={{flex: 1}}><label>Giá (VNĐ)</label><input type="number" min="1" value={productFormData.price} onChange={e => setProductFormData({...productFormData, price: e.target.value})} required /></div>
+                    <div className="input-group" style={{flex: 1}}><label>Kho</label><input type="number" min="0" value={productFormData.stockQuantity} onChange={e => setProductFormData({...productFormData, stockQuantity: e.target.value})} required /></div>
+                  </div>
+                </div>
+
+                {/* Cột phải: Hình ảnh */}
+                <div>
+                  <div className="input-group">
+                    <label>Hình ảnh chính sản phẩm</label>
+                    <div style={{display: 'flex', gap: '0.5rem', marginBottom: '0.5rem'}}><input type="file" accept="image/*" onChange={handleImageUpload} style={{flex: 1, padding: '0.5rem'}} /></div>
+                    <input type="url" placeholder="Hoặc nhập link ảnh trực tiếp..." value={productFormData.imageUrl} onChange={e => setProductFormData({...productFormData, imageUrl: e.target.value})} />
+                    {productFormData.imageUrl && <div style={{marginTop: '1rem', textAlign: 'center', background: 'rgba(0,0,0,0.2)', padding: '1rem', borderRadius: '12px'}}><img src={productFormData.imageUrl} alt="Preview" style={{maxHeight: '150px', objectFit: 'contain', borderRadius: '8px'}} onError={(e) => { e.target.style.display = 'none'; }} /></div>}
+                  </div>
+                  <div className="input-group" style={{marginTop: '1.5rem'}}>
+                    <label>Hình ảnh phụ (Gallery)</label>
+                    <div style={{display: 'flex', gap: '0.5rem', marginBottom: '0.5rem'}}><input type="file" accept="image/*" onChange={handleAdditionalImageUpload} style={{flex: 1, padding: '0.5rem'}} /></div>
+                    <div className="image-upload-preview-list">
+                      {productFormData.additionalImages && productFormData.additionalImages.map((imgUrl, idx) => (
+                        <div key={idx} className="image-upload-preview-item">
+                          <img src={imgUrl} alt={`Phụ ${idx+1}`} onError={(e) => { e.target.src = 'https://placehold.co/100x100?text=Error'; }} />
+                          <button type="button" className="remove-img-btn" onClick={() => removeAdditionalImage(idx)} title="Xóa ảnh"><i className="fa-solid fa-times"></i></button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+
+              <div style={{display: 'flex', gap: '1.5rem', marginTop: '1.5rem', background: 'rgba(255,255,255,0.02)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--glass-border)'}}>
+                <div className="input-group" style={{display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0}}>
+                  <input type="checkbox" id="isFeatured" checked={productFormData.isFeatured} onChange={e => setProductFormData({...productFormData, isFeatured: e.target.checked})} style={{width: 'auto', transform: 'scale(1.2)'}} />
+                  <label htmlFor="isFeatured" style={{margin: 0, color: 'var(--badge-warning-text)', fontWeight: '600', cursor: 'pointer'}}><i className="fa-solid fa-star"></i> Sản phẩm Nổi bật</label>
+                </div>
+                <div className="input-group" style={{display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0}}>
+                  <input type="checkbox" id="isBestSeller" checked={productFormData.isBestSeller} onChange={e => setProductFormData({...productFormData, isBestSeller: e.target.checked})} style={{width: 'auto', transform: 'scale(1.2)'}} />
+                  <label htmlFor="isBestSeller" style={{margin: 0, color: '#ef4444', fontWeight: '600', cursor: 'pointer'}}><i className="fa-solid fa-fire"></i> Sản phẩm Bán chạy</label>
+                </div>
+                <div className="input-group" style={{display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0}}>
+                  <input type="checkbox" id="isComingSoon" checked={productFormData.isComingSoon} onChange={e => setProductFormData({...productFormData, isComingSoon: e.target.checked})} style={{width: 'auto', transform: 'scale(1.2)'}} />
+                  <label htmlFor="isComingSoon" style={{margin: 0, color: '#a855f7', fontWeight: '600', cursor: 'pointer'}}><i className="fa-solid fa-clock"></i> Sắp ra mắt</label>
+                </div>
+              </div>
+
+              {editingProductId && (
+                <div className="input-group" style={{display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '1.5rem', padding: '1rem', background: 'rgba(239, 68, 68, 0.1)', borderRadius: '8px', border: '1px solid rgba(239, 68, 68, 0.2)'}}>
+                  <input type="checkbox" id="isDeleted" checked={productFormData.isDeleted} onChange={e => setProductFormData({...productFormData, isDeleted: e.target.checked})} style={{width: 'auto', transform: 'scale(1.2)'}} />
+                  <label htmlFor="isDeleted" style={{margin: 0, color: '#dc2626', fontWeight: '600', cursor: 'pointer'}}>Ẩn sản phẩm này khỏi Cửa hàng (Ngừng kinh doanh)</label>
+                </div>
+              )}
+              <div className="modal-actions" style={{marginTop: '2rem'}}>
+                <button type="button" className="btn-secondary" onClick={() => setShowProductModal(false)}>Hủy</button>
+                <button type="submit" className="btn-primary">Lưu thay đổi</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showCategoryModal && (
+        <div className="modal-overlay">
+          <div className="modal-content" style={{maxWidth: '400px'}}>
+            <h2 className="modal-title">{editingCategoryId ? 'Sửa Danh mục' : 'Thêm Danh mục'}</h2>
+            <form onSubmit={handleSaveCategory}>
+              <div className="input-group">
+                <label>Tên danh mục</label>
+                <input type="text" value={categoryFormData.name} onChange={e => setCategoryFormData({...categoryFormData, name: e.target.value})} required />
+              </div>
+              <div className="input-group">
+                <label>Mô tả (tùy chọn)</label>
+                <input type="text" value={categoryFormData.description} onChange={e => setCategoryFormData({...categoryFormData, description: e.target.value})} />
+              </div>
+              <div className="modal-actions">
+                <button type="button" className="btn-secondary" onClick={() => setShowCategoryModal(false)}>Hủy</button>
+                <button type="submit" className="btn-primary">Lưu</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+};
+
+// ==========================================
+// FOOTER COMPONENT
+// ==========================================
+const Footer = ({ openGradingModal }) => {
+  const [email, setEmail] = React.useState('');
+  const [subscribeStatus, setSubscribeStatus] = React.useState(null); // null | 'success' | 'error' | 'loading'
+  const [subscribeMessage, setSubscribeMessage] = React.useState('');
+  const [activePopup, setActivePopup] = React.useState(null);
+
+  const popupContent = {
+    'thanh-toan-online': {
+      title: 'Thông báo',
+      content: (
+        <React.Fragment>
+          <p style={{marginBottom: '1rem'}}>Hệ thống chưa hỗ trợ thanh toán online, quý khách vui lòng liên hệ tới số điện thoại/zalo hoặc fanpage.</p>
+        </React.Fragment>
+      )
+    },
+    'huong-dan-mua-hang': {
+      title: 'Hướng Dẫn Mua Hàng',
+      content: (
+        <React.Fragment>
+          <p style={{marginBottom: '1rem'}}>Quý khách vui lòng truy cập website của PikaRyu TCG để tham khảo đầy đủ các sản phẩm hiện đang có tại shop. Tất cả sản phẩm đều được cập nhật hình ảnh thực tế, thông tin mô tả và giá bán chi tiết để khách hàng dễ dàng lựa chọn.</p>
+          <p style={{marginBottom: '1rem'}}>Sau khi đã chọn được các sản phẩm ưng ý và thêm vào giỏ hàng, quý khách vui lòng liên hệ Fanpage hoặc inbox trực tiếp cho shop để được xác nhận đơn hàng, tính tổng hóa đơn và hướng dẫn thanh toán.</p>
+        </React.Fragment>
+      )
+    },
+    'chinh-sach-giao-hang': {
+      title: 'Chính Sách Giao Hàng',
+      content: (
+        <React.Fragment>
+          <p style={{marginBottom: '1rem'}}><strong>Đơn hàng nội thành:</strong> Shop hỗ trợ giao nhanh trong khoảng 20 - 30 phút (tùy khu vực và thời điểm).</p>
+          <p style={{marginBottom: '1rem'}}><strong>Đơn hàng ngoại tỉnh:</strong> Sau khi nhận được thanh toán đầy đủ, shop sẽ tiến hành đóng gói cẩn thận và gửi hàng vào ngày làm việc kế tiếp.</p>
+        </React.Fragment>
+      )
+    },
+    'cam-ket': {
+      title: 'Cam Kết Của PikaRyu TCG',
+      content: (
+        <React.Fragment>
+          <p style={{marginBottom: '1rem'}}>PikaRyu TCG luôn đặt uy tín lên hàng đầu, cam kết mang đến cho khách hàng những sản phẩm chính hãng, chất lượng tốt cùng dịch vụ tận tâm và chuyên nghiệp.</p>
+          <p style={{marginBottom: '1rem'}}>Sự hài lòng của khách hàng là động lực để shop không ngừng hoàn thiện và phát triển. PikaRyu TCG rất mong có cơ hội được đồng hành và phục vụ quý khách trong thời gian dài.</p>
+          <p style={{marginBottom: '1rem'}}>Xin chân thành cảm ơn quý khách đã tin tưởng và lựa chọn PikaRyu TCG!</p>
+        </React.Fragment>
+      )
+    },
+    'chinh-sach-doi-tra': {
+      title: 'Chính Sách Đổi Trả',
+      content: (
+        <React.Fragment>
+          <p style={{marginBottom: '1rem'}}>Shop cam kết tất cả sản phẩm box seal là hàng chính hãng, nguyên seal.</p>
+          <p style={{marginBottom: '1rem'}}>Trường hợp phát hiện sản phẩm giả (fake), reseal hoặc có dấu hiệu can thiệp ("pháp sư"), shop bảo hành 1 đền từ 1 đến 10 lần giá trị sản phẩm tùy từng mặt hàng.</p>
+          <p style={{marginBottom: '1rem'}}>Khách hàng cần quay video mở hàng từ đầu đến cuối một cách liên tục, không cắt ghép để được áp dụng chính sách bảo hành.</p>
+          <p style={{marginBottom: '1rem'}}>Video phải thể hiện rõ tình trạng kiện hàng trước khi mở và toàn bộ quá trình bóc sản phẩm. Các trường hợp không có video hoặc video không liền mạch sẽ không đủ điều kiện xử lý khiếu nại.</p>
+        </React.Fragment>
+      )
+    },
+    'chinh-sach-bao-mat': {
+      title: 'Chính Sách Bảo Mật',
+      content: (
+        <React.Fragment>
+          <p style={{marginBottom: '1rem'}}>Shop cam kết bảo mật toàn bộ thông tin cá nhân của khách hàng.</p>
+          <p style={{marginBottom: '1rem'}}>Thông tin chỉ được sử dụng cho mục đích xác nhận đơn hàng, giao hàng và chăm sóc khách hàng.</p>
+          <p style={{marginBottom: '1rem'}}>Không chia sẻ thông tin khách hàng cho bên thứ ba nếu không có sự đồng ý của khách hàng.</p>
+        </React.Fragment>
+      )
+    },
+    'faq': {
+      title: 'Câu Hỏi Thường Gặp (FAQ)',
+      content: (
+        <React.Fragment>
+          <p style={{marginBottom: '0.5rem'}}><strong>Q: Shop có bán hàng chính hãng không?</strong><br/>A: Tất cả sản phẩm tại PikaRyu TCG đều cam kết chính hãng.</p>
+          <p style={{marginBottom: '0.5rem'}}><strong>Q: Nếu phát hiện hàng fake hoặc reseal thì sao?</strong><br/>A: Shop bảo hành 1 đền 1-10 tùy sản phẩm khi có đầy đủ bằng chứng hợp lệ.</p>
+          <p style={{marginBottom: '0.5rem'}}><strong>Q: Cần điều kiện gì để được bảo hành?</strong><br/>A: Khách hàng cần quay video mở hàng từ đầu đến cuối, liên tục và không cắt ghép.</p>
+          <p style={{marginBottom: '0.5rem'}}><strong>Q: Shop có nhận đặt hàng không?</strong><br/>A: Có, shop hỗ trợ đặt trước các sản phẩm mới theo từng đợt phát hành.</p>
+          <p style={{marginBottom: '0.5rem'}}><strong>Q: Shop có ship toàn quốc không?</strong><br/>A: Có, shop hỗ trợ giao hàng trên toàn quốc.</p>
+        </React.Fragment>
+      )
+    }
+  };
+
+  const handleSubscribe = async (e) => {
+    e.preventDefault();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setSubscribeStatus('error');
+      setSubscribeMessage('Vui lòng nhập email hợp lệ.');
+      return;
+    }
+    setSubscribeStatus('loading');
+    try {
+      const res = await axios.post(`${API_BASE_URL}/public/subscribe`, { email });
+      setSubscribeStatus('success');
+      setSubscribeMessage(res.data.message || 'Vui lòng kiểm tra email để xác nhận!');
+    } catch (err) {
+      setSubscribeStatus('error');
+      setSubscribeMessage((err.response && err.response.data && err.response.data.message) || 'Có lỗi xảy ra. Vui lòng thử lại.');
+    }
+  };
+
+  return (
+    <footer className="site-footer">
+      {/* Gradient accent line */}
+      <div className="footer-accent-bar"></div>
+
+      {/* Newsletter Banner */}
+      <div className="footer-newsletter">
+        <div className="footer-newsletter-inner">
+          <div className="footer-newsletter-text">
+            <h3><i className="fa-solid fa-envelope-open-text" style={{color: 'var(--badge-warning-text)', marginRight: '0.5rem'}}></i>Đăng ký nhận thông báo</h3>
+            <p>Nhận thông tin về bộ sưu tập mới, deal hot & sự kiện exclusive!</p>
+          </div>
+          {subscribeStatus === 'success' ? (
+            <div className="footer-subscribed-msg">
+              <i className="fa-solid fa-circle-check"></i> {subscribeMessage}
+            </div>
+          ) : (
+            <form className="footer-newsletter-form" onSubmit={handleSubscribe}>
+              <input
+                type="email"
+                placeholder="Nhập email của bạn..."
+                value={email}
+                onChange={e => { setEmail(e.target.value); if (subscribeStatus === 'error') setSubscribeStatus(null); }}
+                required
+                disabled={subscribeStatus === 'loading'}
+              />
+              <button type="submit" className="btn-primary" disabled={subscribeStatus === 'loading'}>
+                {subscribeStatus === 'loading' ? <span><i className="fa-solid fa-spinner fa-spin"></i> Đang gửi...</span> : <span>Đăng ký <i className="fa-solid fa-paper-plane"></i></span>}
+              </button>
+              {subscribeStatus === 'error' && <div style={{color: '#ef4444', fontSize: '0.85rem', width: '100%', marginTop: '0.5rem'}}>{subscribeMessage}</div>}
+            </form>
+          )}
+        </div>
+      </div>
+
+      {/* Main Footer Grid */}
+      <div className="footer-container">
+
+        {/* Brand Column */}
+        <div className="footer-col footer-brand-col">
+          <div className="footer-logo" style={{display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
+            <img src="/logo.png" alt="PikaRyu TCG Logo" style={{maxHeight: '60px', objectFit: 'contain'}} />
+            <span className="footer-logo-text">PikaRyu TCG</span>
+          </div>
+          <p style={{lineHeight: '1.8', marginBottom: '1.5rem'}}>Uy tín - Minh bạch - Chất lượng. <br/>Hệ thống phân phối và sưu tầm thẻ bài Pokémon chính hãng.</p>
+          <div className="footer-badges" style={{display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '1.5rem'}}>
+            <span className="footer-badge" style={{fontSize: '0.75rem', padding: '0.3rem 0.6rem'}}><i className="fa-solid fa-check"></i> Nhận chấm PSA</span>
+            <span className="footer-badge" style={{fontSize: '0.75rem', padding: '0.3rem 0.6rem'}}><i className="fa-solid fa-wrench"></i> Sửa thẻ miễn phí</span>
+            <span className="footer-badge" style={{fontSize: '0.75rem', padding: '0.3rem 0.6rem'}}><i className="fa-solid fa-box"></i> Order Box & Thẻ Nhật</span>
+            <span className="footer-badge" style={{fontSize: '0.75rem', padding: '0.3rem 0.6rem'}}><i className="fa-solid fa-gift"></i> Thu lại hit</span>
+          </div>
+          <div className="social-links">
+            <a href="https://www.facebook.com/share/1NXmi8hQGQ/" title="Facebook" className="social-link-facebook" target="_blank" rel="noopener noreferrer"><i className="fa-brands fa-facebook-f"></i></a>
+            <a href="#" title="YouTube" className="social-link-youtube"><i className="fa-brands fa-youtube"></i></a>
+            <a href="#" title="TikTok" className="social-link-tiktok"><i className="fa-brands fa-tiktok"></i></a>
+            <a href="#" title="Instagram" className="social-link-instagram"><i className="fa-brands fa-instagram"></i></a>
+            <a href="#" title="Discord" className="social-link-discord"><i className="fa-brands fa-discord"></i></a>
+          </div>
+        </div>
+
+        {/* Customer Service */}
+        <div className="footer-col">
+          <h4><i className="fa-solid fa-headset" style={{marginRight: '0.5rem', color: 'var(--accent-color)'}}></i>Chăm sóc khách hàng</h4>
+          <ul>
+            <li><a href="#" onClick={(e) => { e.preventDefault(); setActivePopup('chinh-sach-doi-tra'); }}><i className="fa-solid fa-chevron-right footer-link-icon"></i>Chính sách đổi trả</a></li>
+            <li><a href="#" onClick={(e) => { e.preventDefault(); setActivePopup('chinh-sach-bao-mat'); }}><i className="fa-solid fa-chevron-right footer-link-icon"></i>Chính sách bảo mật</a></li>
+            <li><a href="#" onClick={(e) => { e.preventDefault(); setActivePopup('huong-dan-mua-hang'); }}><i className="fa-solid fa-chevron-right footer-link-icon"></i>Hướng dẫn mua hàng</a></li>
+            <li><a href="#" onClick={(e) => { e.preventDefault(); setActivePopup('chinh-sach-giao-hang'); }}><i className="fa-solid fa-chevron-right footer-link-icon"></i>Chính sách giao hàng</a></li>
+            <li><a href="#" onClick={(e) => { e.preventDefault(); setActivePopup('cam-ket'); }}><i className="fa-solid fa-chevron-right footer-link-icon"></i>Cam kết của PikaRyu TCG</a></li>
+            <li><a href="#" onClick={(e) => { e.preventDefault(); setActivePopup('faq'); }}><i className="fa-solid fa-chevron-right footer-link-icon"></i>Câu hỏi thường gặp (FAQ)</a></li>
+            <li><a href="#" onClick={(e) => { e.preventDefault(); if (openGradingModal) openGradingModal(); }}><i className="fa-solid fa-chevron-right footer-link-icon"></i>Dịch vụ Card Grading</a></li>
+          </ul>
+        </div>
+
+        {/* Featured Categories */}
+        <div className="footer-col">
+          <h4><i className="fa-solid fa-layer-group" style={{marginRight: '0.5rem', color: 'var(--accent-color)'}}></i>Danh mục nổi bật</h4>
+          <ul>
+            <li><a href="#" onClick={(e) => { e.preventDefault(); const el = document.getElementById('san-pham-noi-bat'); if(el) el.scrollIntoView({behavior: 'smooth'}); }}><i className="fa-solid fa-chevron-right footer-link-icon"></i>Sản phẩm nổi bật</a></li>
+            <li><a href="#" onClick={(e) => { e.preventDefault(); const el = document.getElementById('san-pham-ban-chay'); if(el) el.scrollIntoView({behavior: 'smooth'}); }}><i className="fa-solid fa-chevron-right footer-link-icon"></i>Sản phẩm bán chạy</a></li>
+            <li><a href="#" onClick={(e) => { e.preventDefault(); const el = document.getElementById('san-pham-sap-ra-mat'); if(el) el.scrollIntoView({behavior: 'smooth'}); }}><i className="fa-solid fa-chevron-right footer-link-icon"></i>Sản phẩm sắp ra mắt</a></li>
+          </ul>
+        </div>
+
+        {/* Contact Info */}
+        <div className="footer-col">
+          <h4><i className="fa-solid fa-address-card" style={{marginRight: '0.5rem', color: 'var(--accent-color)'}}></i>Thông tin liên hệ</h4>
+          <div className="footer-contact-list">
+            <div className="footer-contact-item" style={{alignItems: 'flex-start'}}>
+              <div className="footer-contact-icon" style={{marginTop: '0.2rem'}}><i className="fa-solid fa-location-dot"></i></div>
+              <div style={{display: 'flex', flexDirection: 'column', gap: '0.5rem', lineHeight: '1.4'}}>
+                <span>CS1: 107 A Nguyễn Phong Sắc, Cầu Giấy, Hà Nội</span>
+                <span>CS2: Xã Khương Hạ, Khương Đình, Thanh Xuân, Hà Nội</span>
+                <span>CS3: Xã Bà Điểm, Huyện Hóc Môn, TP. HCM</span>
+              </div>
+            </div>
+            <div className="footer-contact-item">
+              <div className="footer-contact-icon"><i className="fa-solid fa-phone"></i></div>
+              <span><a href="tel:0982804160" style={{color: 'inherit', textDecoration: 'none'}}>098 280 41 60</a></span>
+            </div>
+            <div className="footer-contact-item">
+              <div className="footer-contact-icon"><i className="fa-solid fa-envelope"></i></div>
+              <span><a href="mailto:cskh@pokemontcg.vn" style={{color: 'inherit', textDecoration: 'none'}}>cskh@pokemontcg.vn</a></span>
+            </div>
+            <div className="footer-contact-item">
+              <div className="footer-contact-icon"><i className="fa-solid fa-clock"></i></div>
+              <span>09:00 – 21:00 (Tất cả các ngày)</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Footer Bottom Bar */}
+      <div className="footer-bottom">
+        <div className="footer-bottom-inner">
+          <span>&copy; {new Date().getFullYear()} PikaRyu TCG. All rights reserved.</span>
+          <div className="footer-bottom-links">
+            <a href="#">Điều khoản sử dụng</a>
+            <span className="footer-divider">|</span>
+            <a href="#">Chính sách bảo mật</a>
+            <span className="footer-divider">|</span>
+            <a href="#">Cookie</a>
+          </div>
+          <span className="footer-powered">Made with <i className="fa-solid fa-heart" style={{color: '#ef4444'}}></i> in Vietnam</span>
+        </div>
+      </div>
+
+      {activePopup && popupContent[activePopup] && (
+        <div className="modal-overlay" onClick={() => setActivePopup(null)} style={{zIndex: 9999}}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{maxWidth: '600px', width: '90%', maxHeight: '80vh', overflowY: 'auto', background: 'var(--card-bg, #1e293b)', color: 'var(--text-primary, #f8fafc)', border: '1px solid var(--glass-border, rgba(255,255,255,0.1))'}}>
+            <h2 className="modal-title" style={{borderBottom: '1px solid var(--glass-border, rgba(255,255,255,0.1))', paddingBottom: '1rem', marginBottom: '1rem'}}>{popupContent[activePopup].title}</h2>
+            <div style={{lineHeight: '1.6'}}>
+              {popupContent[activePopup].content}
+            </div>
+            <div className="modal-actions" style={{marginTop: '2rem', textAlign: 'right'}}>
+              <button className="btn-primary" onClick={() => setActivePopup(null)}>Đóng</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </footer>
+  );
+};
+
+// ==========================================
+// MAIN APP COMPONENT (ROUTER)
+// ==========================================
+const App = () => {
+  const [currentView, setCurrentView] = useState('STOREFRONT');
+  const [token, setToken] = useState(localStorage.getItem('adminToken'));
+
+  const navigateTo = (view) => setCurrentView(view);
+
+  const handleLoginSuccess = (newToken) => {
+    localStorage.setItem('adminToken', newToken);
+    setToken(newToken);
+    setCurrentView('ADMIN_DASHBOARD');
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('adminToken');
+    setToken(null);
+    setCurrentView('STOREFRONT');
+  };
+
+  // Check if trying to access dashboard without token
+  useEffect(() => {
+    if (currentView === 'ADMIN_DASHBOARD' && !token) {
+      setCurrentView('ADMIN_LOGIN');
+    }
+  }, [currentView, token]);
+
+  if (currentView === 'STOREFRONT') return <Storefront navigateTo={navigateTo} />;
+  if (currentView === 'ADMIN_LOGIN') {
+    if (token) {
+      setCurrentView('ADMIN_DASHBOARD');
+      return null;
+    }
+    return <AdminLogin navigateTo={navigateTo} onLoginSuccess={handleLoginSuccess} />;
+  }
+  if (currentView === 'ADMIN_DASHBOARD') return <AdminDashboard navigateTo={navigateTo} token={token} onLogout={handleLogout} />;
+
+  return null;
+};
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);
+    </script>
+  </body>
+</html>
+
+
+
+
+
+
+
