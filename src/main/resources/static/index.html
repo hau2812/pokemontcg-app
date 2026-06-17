@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
@@ -302,22 +302,21 @@ const Storefront = ({ navigateTo }) => {
         </div>
       </header>
       {banners.length > 0 && (
-        <div className="store-banner">
+        <div className="store-banner" 
+             style={{ cursor: banners[currentBannerIndex].linkUrl ? 'pointer' : 'default' }} 
+             onClick={() => banners[currentBannerIndex].linkUrl && window.open(banners[currentBannerIndex].linkUrl, '_blank')}>
           <img src={banners[currentBannerIndex].imageUrl} alt={banners[currentBannerIndex].title || 'Banner'} />
           <div className="store-banner-overlay" style={{ background: (banners[currentBannerIndex].title || banners[currentBannerIndex].description) ? '' : 'none', pointerEvents: 'none' }}>
-            {(banners[currentBannerIndex].title || banners[currentBannerIndex].description || banners[currentBannerIndex].linkUrl) && (
-              <div className="store-banner-content" style={{ pointerEvents: 'auto' }}>
+            {(banners[currentBannerIndex].title || banners[currentBannerIndex].description) && (
+              <div className="store-banner-content" style={{ pointerEvents: 'none' }}>
                 {banners[currentBannerIndex].title && <h2>{banners[currentBannerIndex].title}</h2>}
                 {banners[currentBannerIndex].description && <p>{banners[currentBannerIndex].description}</p>}
-                {banners[currentBannerIndex].linkUrl && (
-                  <a href={banners[currentBannerIndex].linkUrl} className="store-banner-link" target="_blank" rel="noopener noreferrer">Xem Chi Tiết</a>
-                )}
               </div>
             )}
             {banners.length > 1 && (
               <div className="banner-carousel-controls" style={{ pointerEvents: 'auto' }}>
                 {banners.map((b, idx) => (
-                  <span key={b.id} className={`banner-dot ${idx === currentBannerIndex ? 'active' : ''}`} onClick={() => setCurrentBannerIndex(idx)}></span>
+                  <span key={b.id} className={`banner-dot ${idx === currentBannerIndex ? 'active' : ''}`} onClick={(e) => { e.stopPropagation(); setCurrentBannerIndex(idx); }}></span>
                 ))}
               </div>
             )}
