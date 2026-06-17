@@ -19,6 +19,8 @@ services:
       # Gmail Configuration
       GMAIL_USER: pikaryutcg@gmail.com
       GMAIL_APP_PASSWORD: "lhwf nvvv goba ahgn" # NOTE: Change this or use a .env file!
+    volumes:
+      - ./uploads:/app/uploads
     networks:
       - tcg-network
 
