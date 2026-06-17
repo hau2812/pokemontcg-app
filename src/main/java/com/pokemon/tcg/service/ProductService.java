@@ -61,8 +61,6 @@ public class ProductService {
 
     @Transactional
     public void deleteProduct(Long id) {
-        Product existing = productRepository.findById(id).orElseThrow(() -> new RuntimeException("Product not found"));
-        existing.setIsDeleted(true);
-        productRepository.save(existing);
+        productRepository.deleteById(id);
     }
 }
