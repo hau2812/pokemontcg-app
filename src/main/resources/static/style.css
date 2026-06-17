@@ -1112,7 +1112,6 @@ h1 {
   margin-left: calc(50% - 50vw + 2rem);
   border-radius: 20px;
   aspect-ratio: 21 / 9;
-  max-height: 550px;
   background-color: var(--card-bg);
 }
 .store-banner img {
