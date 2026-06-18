@@ -11,6 +11,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "products")
@@ -58,6 +59,9 @@ public class Product {
     @Builder.Default
     private Boolean isComingSoon = false;
 
+    @jakarta.persistence.Column(name = "updated_at")
+    private LocalDateTime updatedAt;
+
     @jakarta.persistence.PrePersist
     protected void onCreate() {
         if (isDeleted == null) {
@@ -72,5 +76,13 @@ public class Product {
         if (isComingSoon == null) {
             isComingSoon = false;
         }
+        if (updatedAt == null) {
+            updatedAt = LocalDateTime.now();
+        }
+    }
+
+    @jakarta.persistence.PreUpdate
+    protected void onUpdate() {
+        this.updatedAt = LocalDateTime.now();
     }
 }

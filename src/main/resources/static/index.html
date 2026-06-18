@@ -328,9 +328,9 @@ const Storefront = ({ navigateTo }) => {
 
       {(!selectedCategory && !searchQuery) ? (
         <React.Fragment>
-          {renderProductGrid(products.filter(p => p.isFeatured).slice(0, 6), "Sản phẩm Nổi bật", <i className="fa-solid fa-star" style={{color: 'var(--badge-warning-text)'}}></i>, null, "san-pham-noi-bat")}
-          {renderProductGrid(products.filter(p => p.isBestSeller).slice(0, 6), "Bán chạy nhất", <i className="fa-solid fa-fire" style={{color: '#ef4444'}}></i>, null, "san-pham-ban-chay")}
-          {renderProductGrid(products.filter(p => p.isComingSoon).slice(0, 6), "Sắp ra mắt", <i className="fa-solid fa-clock" style={{color: '#a855f7'}}></i>, null, "san-pham-sap-ra-mat")}
+          {renderProductGrid(products.filter(p => p.isFeatured).sort((a,b) => (b.updatedAt ? new Date(b.updatedAt).getTime() : 0) - (a.updatedAt ? new Date(a.updatedAt).getTime() : 0)).slice(0, 6), "Sản phẩm Nổi bật", <i className="fa-solid fa-star" style={{color: 'var(--badge-warning-text)'}}></i>, null, "san-pham-noi-bat")}
+          {renderProductGrid(products.filter(p => p.isBestSeller).sort((a,b) => (b.updatedAt ? new Date(b.updatedAt).getTime() : 0) - (a.updatedAt ? new Date(a.updatedAt).getTime() : 0)).slice(0, 6), "Bán chạy nhất", <i className="fa-solid fa-fire" style={{color: '#ef4444'}}></i>, null, "san-pham-ban-chay")}
+          {renderProductGrid(products.filter(p => p.isComingSoon).sort((a,b) => (b.updatedAt ? new Date(b.updatedAt).getTime() : 0) - (a.updatedAt ? new Date(a.updatedAt).getTime() : 0)).slice(0, 6), "Sắp ra mắt", <i className="fa-solid fa-clock" style={{color: '#a855f7'}}></i>, null, "san-pham-sap-ra-mat")}
           {(() => {
             const allProducts = applySort(products);
             const totalPages = Math.ceil(allProducts.length / itemsPerPage);
@@ -434,12 +434,16 @@ const Storefront = ({ navigateTo }) => {
         </div>
       )}
 
-            {showCheckout && (
+      {showCheckout && (
         <div className="modal-overlay" onClick={() => setShowCheckout(false)}>
           <div className="modal-content" onClick={e => e.stopPropagation()} style={{maxWidth: '500px'}}>
-            <h2 className="modal-title">Thông báo</h2>
+            <h2 className="modal-title">Thanh toán</h2>
             <div style={{lineHeight: '1.6', marginBottom: '2rem'}}>
-              <p style={{marginBottom: '1rem'}}>Hệ thống chưa hỗ trợ thanh toán online, quý khách vui lòng liên hệ qua các kênh sau để được hỗ trợ mua hàng:</p>
+              <div style={{display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '1.5rem', background: 'white', padding: '1rem', borderRadius: '12px'}}>
+                <img src={`https://img.vietqr.io/image/970405-3528205162449-compact2.png?amount=${totalPrice}&accountName=HOANG%20THI%20HANG`} alt="QR Code Thanh Toan" style={{maxWidth: '100%', height: 'auto', borderRadius: '8px'}} />
+                <p style={{color: '#ef4444', fontWeight: 'bold', marginTop: '1rem', textAlign: 'center', fontSize: '1.1rem'}}>Khi quét xong chụp bill lại và gửi ảnh qua fanpage nha</p>
+              </div>
+              <p style={{marginBottom: '1rem'}}>Hoặc quý khách có thể liên hệ qua các kênh sau để được hỗ trợ mua hàng:</p>
               <div style={{display: 'flex', flexDirection: 'column', gap: '1rem', background: 'var(--bg-color)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--glass-border)'}}>
                 <a href="tel:0982804160" style={{display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--text-primary)', textDecoration: 'none'}}>
                   <i className="fa-solid fa-phone-volume" style={{color: 'var(--accent-color)', width: '24px', textAlign: 'center', fontSize: '1.1rem'}}></i>
@@ -457,7 +461,6 @@ const Storefront = ({ navigateTo }) => {
           </div>
         </div>
       )}
-    </div>
 
       {showGradingModal && (
         <div className="modal-overlay" onClick={() => setShowGradingModal(false)}>
@@ -1616,6 +1619,7 @@ const Footer = ({ openGradingModal }) => {
                 <span>CS1: 107 A Nguyễn Phong Sắc, Cầu Giấy, Hà Nội</span>
                 <span>CS2: Xã Khương Hạ, Khương Đình, Thanh Xuân, Hà Nội</span>
                 <span>CS3: Xã Bà Điểm, Huyện Hóc Môn, TP. HCM</span>
+                <span>CS4: 24 Dương Xuân, Thuận Hóa, Huế (new)</span>
               </div>
             </div>
             <div className="footer-contact-item">
