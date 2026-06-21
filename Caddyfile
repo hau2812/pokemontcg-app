@@ -1,0 +1,7 @@
+japanhntcg.com {
+    redir https://www.japanhntcg.com{uri}
+}
+
+www.japanhntcg.com {
+    reverse_proxy app:8080
+}

@@ -34,12 +34,13 @@ services:
       - "443:443"
     environment:
       - DOMAIN=www.japanhntcg.com
-    command: caddy reverse-proxy --from https://www.japanhntcg.com --to http://app:8080
+    command: caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
     depends_on:
       - app
     networks:
       - tcg-network
     volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
       - caddy_data:/data
       - caddy_config:/config
 
