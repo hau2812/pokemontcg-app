@@ -81,13 +81,15 @@ const Storefront = ({ navigateTo }) => {
     setTimeout(() => setSelectedProduct(null), 300);
   };
 
+  const [error, setError] = useState(null);
+
   useEffect(() => {
     const fetchData = async () => {
       try {
         const [prodRes, catRes, bannerRes] = await Promise.all([
-          axios.get(`${API_BASE_URL}/public/products`),
-          axios.get(`${API_BASE_URL}/public/categories`),
-          axios.get(`${API_BASE_URL}/public/banners`)
+          axios.get(`${API_BASE_URL}/public/products`, { timeout: 15000 }),
+          axios.get(`${API_BASE_URL}/public/categories`, { timeout: 15000 }),
+          axios.get(`${API_BASE_URL}/public/banners`, { timeout: 15000 })
         ]);
         setProducts(prodRes.data);
         setCategories(catRes.data);
@@ -98,8 +100,9 @@ const Storefront = ({ navigateTo }) => {
                if (res.data && res.data.value) setGradingPolicy(JSON.parse(res.data.value));
              })
              .catch(err => console.error("No policy found", err));
-      } catch (error) {
-        console.error("Error fetching data:", error);
+      } catch (err) {
+        console.error("Error fetching data:", err);
+        setError("Không thể kết nối đến máy chủ. Hệ thống đang bảo trì hoặc đang bị gián đoạn, vui lòng thử lại sau ít phút.");
       } finally {
         setLoading(false);
       }
@@ -184,6 +187,19 @@ const Storefront = ({ navigateTo }) => {
   );
 
   if (loading) return <div className="loader"></div>;
+
+  if (error) {
+    return (
+      <div className="container" style={{paddingTop: '5rem', minHeight: '60vh', display: 'flex', justifyContent: 'center', alignItems: 'center'}}>
+        <div style={{textAlign: 'center', background: 'var(--card-bg)', padding: '3rem', borderRadius: '16px', border: '1px solid var(--glass-border)', maxWidth: '500px'}}>
+          <i className="fa-solid fa-server" style={{fontSize: '4rem', color: '#ef4444', marginBottom: '1.5rem', opacity: 0.8}}></i>
+          <h2 style={{color: 'var(--text-primary)', marginBottom: '1rem'}}>Lỗi Kết Nối Máy Chủ</h2>
+          <p style={{color: 'var(--text-secondary)', lineHeight: '1.6', marginBottom: '2rem'}}>{error}</p>
+          <button className="btn-primary" onClick={() => window.location.reload()}><i className="fa-solid fa-rotate-right"></i> Tải Lại Trang</button>
+        </div>
+      </div>
+    );
+  }
 
   if (orderSuccess) {
     const qrUrl = `https://img.vietqr.io/image/970407-19031234567890-compact2.png?amount=${orderSuccess.finalTotal}&addInfo=${orderSuccess.orderCode}&accountName=POKEMON TCG STORE`;
